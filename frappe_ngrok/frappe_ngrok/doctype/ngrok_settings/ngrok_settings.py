@@ -33,8 +33,8 @@ def get_local_ip() -> str:
 
 
 def get_mdns_hostname() -> str:
-	"""Return local mDNS system hostname e.g. bajrang-Latitude-7480.local."""
-	hostname = socket.gethostname()
+	"""Return local mDNS system hostname in lowercase e.g. bajrang-latitude-7480.local."""
+	hostname = socket.gethostname().strip().lower()
 	if not hostname.endswith(".local"):
 		return f"{hostname}.local"
 	return hostname
@@ -301,8 +301,8 @@ class NgrokSettings(Document):
 		self.site_port = port
 		self.local_ip = local_ip
 		self.local_network_url = f"http://{local_ip}:{port}"
-		self.system_mdns_hostname = system_mdns
-		self.system_mdns_url = f"http://{system_mdns}:{port}"
+		self.system_mdns_hostname = system_mdns.lower()
+		self.system_mdns_url = f"http://{system_mdns}:{port}".lower()
 
 		if not self.host_header:
 			self.host_header = current_site
@@ -379,6 +379,8 @@ class NgrokSettings(Document):
 
 		port = self.site_port or get_current_site_port()
 		self.local_domain_url = f"http://{self.local_domain}:{port}"
+		self.system_mdns_hostname = get_mdns_hostname().lower()
+		self.system_mdns_url = f"http://{self.system_mdns_hostname}:{port}".lower()
 
 		# Sync symlinks based on toggles
 		sync_symlinks(self, current_site)

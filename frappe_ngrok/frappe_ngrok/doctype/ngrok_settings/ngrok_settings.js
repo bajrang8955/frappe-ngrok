@@ -342,7 +342,7 @@ function render_status_card(frm) {
 	const ngrokUrl = doc.ngrok_url || "";
 	const localDomain = doc.local_domain || "sbmpl.local";
 	const localDomainUrl = doc.local_domain_url || `http://${localDomain}:${doc.site_port || 8002}`;
-	const systemMdnsUrl = doc.system_mdns_url || "";
+	const systemMdnsUrl = (doc.system_mdns_url || "").toLowerCase();
 	const localIp = doc.local_ip || "127.0.0.1";
 	const localIpUrl = doc.local_network_url || `http://${localIp}:${doc.site_port || 8002}`;
 	const expiresAt = doc.expires_at ? doc.expires_at.split(".")[0] : "";
