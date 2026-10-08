@@ -8,12 +8,15 @@
   "local_domain_section",
   "local_domain",
   "local_domain_url",
+  "enable_local_domain_symlink",
   "col_break_domain",
   "system_mdns_hostname",
   "system_mdns_url",
+  "enable_system_mdns_symlink",
   "local_ip_section",
   "local_ip",
   "local_network_url",
+  "enable_local_ip_symlink",
   "col_break_ip",
   "set_as_default_site",
   "ngrok_section",
@@ -65,6 +68,13 @@
    "read_only": 1
   },
   {
+   "default": "1",
+   "description": "Create symlink 'sites/<local_domain>' for multi-tenant routing. If unchecked, the symlink is removed.",
+   "fieldname": "enable_local_domain_symlink",
+   "fieldtype": "Check",
+   "label": "Enable Local Domain Symlink"
+  },
+  {
    "fieldname": "col_break_domain",
    "fieldtype": "Column Break"
   },
@@ -83,6 +93,13 @@
    "read_only": 1
   },
   {
+   "default": "0",
+   "description": "Create symlink 'sites/<hostname>.local' for fallback access. If unchecked, the symlink is removed.",
+   "fieldname": "enable_system_mdns_symlink",
+   "fieldtype": "Check",
+   "label": "Enable System Hostname Symlink"
+  },
+  {
    "fieldname": "local_ip_section",
    "fieldtype": "Section Break",
    "label": "2. Direct Local IP (LAN)"
@@ -99,6 +116,13 @@
    "fieldtype": "Data",
    "label": "Direct IP URL",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Create symlink 'sites/<local_ip>' to map direct IP traffic. If unchecked, the symlink is removed.",
+   "fieldname": "enable_local_ip_symlink",
+   "fieldtype": "Check",
+   "label": "Enable Local IP Symlink"
   },
   {
    "fieldname": "col_break_ip",
@@ -248,7 +272,7 @@
   }
  ],
  "issingle": 1,
- "modified": "2026-10-08 16:38:00.000000",
+ "modified": "2026-10-08 17:15:00.000000",
  "modified_by": "Administrator",
  "module": "Frappe Ngrok",
  "name": "Ngrok Settings",

@@ -31,6 +31,22 @@ frappe.ui.form.on("Ngrok Settings", {
 		render_status_card(frm);
 	},
 
+	custom_expiry_minutes(frm) {
+		render_status_card(frm);
+	},
+
+	enable_local_domain_symlink(frm) {
+		render_status_card(frm);
+	},
+
+	enable_system_mdns_symlink(frm) {
+		render_status_card(frm);
+	},
+
+	enable_local_ip_symlink(frm) {
+		render_status_card(frm);
+	},
+
 	ngrok_url(frm) {
 		render_status_card(frm);
 	},
@@ -329,8 +345,11 @@ function render_status_card(frm) {
 	const systemMdnsUrl = doc.system_mdns_url || "";
 	const localIp = doc.local_ip || "127.0.0.1";
 	const localIpUrl = doc.local_network_url || `http://${localIp}:${doc.site_port || 8002}`;
-	const expiresAt = doc.expires_at || "";
+	const expiresAt = doc.expires_at ? doc.expires_at.split(".")[0] : "";
 	const expiryType = doc.expiry_type || "No Expiry";
+	const cleanExpiryLabel = expiryType === "Custom Minutes"
+		? `${doc.custom_expiry_minutes || 0} Minutes`
+		: expiryType;
 
 	const badgeHtml = isRunning
 		? `<span class="indicator-pill green" style="font-size: 13px; font-weight: 600; padding: 4px 10px;">🟢 Ngrok Active</span>`
@@ -357,6 +376,31 @@ function render_status_card(frm) {
 		`;
 	}
 
+	// Silent reactive auto-expiry callback when tunnel reaches expiry
+	if (window.__frappe_ngrok_expiry_timeout) {
+		clearTimeout(window.__frappe_ngrok_expiry_timeout);
+		window.__frappe_ngrok_expiry_timeout = null;
+	}
+
+	if (isRunning && expiresAt && expiryType !== "No Expiry") {
+		const targetTime = new Date(expiresAt.replace(" ", "T")).getTime();
+		const diffMs = targetTime - Date.now();
+		if (diffMs > 0) {
+			window.__frappe_ngrok_expiry_timeout = setTimeout(() => {
+				frappe.call({
+					method: "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.check_and_expire_tunnel",
+					callback: function () {
+						frappe.show_alert({
+							message: __("Ngrok tunnel auto-expired and stopped."),
+							indicator: "orange"
+						});
+						if (frm) frm.reload_doc();
+					}
+				});
+			}, diffMs + 1000);
+		}
+	}
+
 	// QR Codes
 	const qrLocalDomain = `https://api.qrserver.com/v1/create-qr-code/?size=125x125&data=${encodeURIComponent(localDomainUrl)}`;
 	const qrLocalIp = `https://api.qrserver.com/v1/create-qr-code/?size=125x125&data=${encodeURIComponent(localIpUrl)}`;
@@ -364,14 +408,14 @@ function render_status_card(frm) {
 		? `https://api.qrserver.com/v1/create-qr-code/?size=125x125&data=${encodeURIComponent(ngrokUrl)}`
 		: "";
 
-	// Static Expiry Banner (NO live ticking countdown)
+	// Static Expiry Banner (clean label e.g. "2 Minutes" instead of "Custom Minutes")
 	let timerHtml = "";
 	if (isRunning) {
-		if (expiresAt) {
+		if (expiresAt && expiryType !== "No Expiry") {
 			timerHtml = `
 				<div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 7px 10px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
 					<span style="font-size: 11.5px; color: #92400e; font-weight: 600;">
-						⏱️ Auto-Expires: <strong>${expiryType}</strong> (at ${expiresAt})
+						⏱️ Auto-Expires: <strong>${cleanExpiryLabel}</strong> (at ${expiresAt})
 					</span>
 					<button class="btn btn-xs btn-default btn-set-timer" style="padding: 1px 7px; font-size: 10.5px;">
 						⚙️ Change
@@ -394,7 +438,7 @@ function render_status_card(frm) {
 		timerHtml = `
 			<div style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 7px 10px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
 				<span style="font-size: 11.5px; color: #64748b; font-weight: 500;">
-					⏱️ Timer Config: <strong>${expiryType === "No Expiry" ? "No Expiry" : expiryType}</strong>
+					⏱️ Timer Config: <strong>${cleanExpiryLabel}</strong>
 				</span>
 				<button class="btn btn-xs btn-default btn-set-timer" style="padding: 1px 7px; font-size: 10.5px;">
 					⚙️ Config
@@ -425,7 +469,14 @@ function render_status_card(frm) {
 								<span style="font-size: 18px;">🏠</span>
 								<strong style="font-size: 14px; color: #1e3a8a;">1. .local Domain (Wi-Fi)</strong>
 							</div>
-							<span class="badge" style="background: #dbeafe; color: #1e40af; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">Recommended</span>
+							<div style="display: flex; gap: 4px; align-items: center;">
+								${
+									doc.enable_local_domain_symlink
+										? `<span class="badge" style="background: #dbeafe; color: #1e40af; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">Symlink Enabled</span>`
+										: `<span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">Symlink Disabled</span>`
+								}
+								<span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">Recommended</span>
+							</div>
 						</div>
 
 						<div style="background: var(--control-bg, #ffffff); border: 1px solid #93c5fd; border-radius: 6px; padding: 9px 12px; margin-bottom: 8px; word-break: break-all; font-family: monospace; font-size: 12.5px; font-weight: 600; color: #1d4ed8;">
@@ -464,7 +515,14 @@ function render_status_card(frm) {
 								<span style="font-size: 18px;">📶</span>
 								<strong style="font-size: 14px; color: var(--text-color);">2. Direct Local IP (LAN)</strong>
 							</div>
-							<span class="badge" style="background: #e2e8f0; color: #475569; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">Direct IP</span>
+							<div style="display: flex; gap: 4px; align-items: center;">
+								${
+									doc.enable_local_ip_symlink
+										? `<span class="badge" style="background: #dcfce7; color: #15803d; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">Symlink Enabled</span>`
+										: `<span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">Symlink Disabled</span>`
+								}
+								<span class="badge" style="background: #e2e8f0; color: #475569; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">Direct IP</span>
+							</div>
 						</div>
 
 						<div style="background: var(--control-bg, #ffffff); border: 1px solid var(--border-color); border-radius: 6px; padding: 9px 12px; margin-bottom: 8px; word-break: break-all; font-family: monospace; font-size: 12.5px; font-weight: 600; color: #334155;">
@@ -486,7 +544,13 @@ function render_status_card(frm) {
 						</div>
 
 						<div class="text-muted" style="font-size: 11px; background: rgba(0,0,0,0.03); padding: 8px 10px; border-radius: 5px; line-height: 1.4;">
-							ℹ️ <strong>Direct IP:</strong> Mapped via <code>sites/${localIp}</code> symlink. If unreachable on mobile, your router may have AP isolation enabled (use the <strong>.local Domain</strong> above).
+							ℹ️ <strong>Direct IP:</strong>
+							${
+								doc.enable_local_ip_symlink
+									? `Mapped via active <code>sites/${localIp}</code> symlink.`
+									: `Symlink is disabled in settings below.`
+							}
+							If unreachable on mobile, use the <strong>.local Domain</strong> above.
 						</div>
 					</div>
 				</div>

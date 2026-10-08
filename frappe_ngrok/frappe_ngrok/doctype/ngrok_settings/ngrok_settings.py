@@ -7,6 +7,7 @@ import signal
 import socket
 import subprocess
 import tarfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -125,13 +126,53 @@ def ensure_site_alias_symlink(alias_domain: str, target_site: str):
 		return
 
 	sites_dir = os.path.abspath(os.path.join(frappe.get_site_path(), ".."))
-	alias_path = os.path.join(sites_dir, alias_domain)
+	for domain in {alias_domain, alias_domain.lower()}:
+		alias_path = os.path.join(sites_dir, domain)
+		if not os.path.exists(alias_path) and not os.path.islink(alias_path):
+			try:
+				os.symlink(target_site, alias_path)
+			except Exception as e:
+				frappe.log_error(f"Failed to create site alias symlink {alias_path}: {e}")
 
-	if not os.path.exists(alias_path) and not os.path.islink(alias_path):
-		try:
-			os.symlink(target_site, alias_path)
-		except Exception as e:
-			frappe.log_error(f"Failed to create site alias symlink {alias_path}: {e}")
+
+def remove_site_alias_symlink(alias_domain: str):
+	"""Remove a symlink in sites/ if present (handles case insensitivity)."""
+	if not alias_domain:
+		return
+
+	sites_dir = os.path.abspath(os.path.join(frappe.get_site_path(), ".."))
+	for domain in {alias_domain, alias_domain.lower()}:
+		alias_path = os.path.join(sites_dir, domain)
+		if os.path.islink(alias_path):
+			try:
+				os.unlink(alias_path)
+			except Exception as e:
+				frappe.log_error(f"Failed to remove site alias symlink {alias_path}: {e}")
+
+
+def sync_symlinks(doc, current_site: str):
+	"""Create or remove symlinks based on doc settings."""
+	local_domain = doc.get("local_domain")
+	system_mdns = get_mdns_hostname()
+	local_ip = get_local_ip()
+
+	# 1. Local Domain Symlink
+	if doc.get("enable_local_domain_symlink") and local_domain:
+		ensure_site_alias_symlink(local_domain, current_site)
+	elif local_domain:
+		remove_site_alias_symlink(local_domain)
+
+	# 2. System Hostname Symlink
+	if doc.get("enable_system_mdns_symlink") and system_mdns:
+		ensure_site_alias_symlink(system_mdns, current_site)
+	elif system_mdns:
+		remove_site_alias_symlink(system_mdns)
+
+	# 3. Direct Local IP Symlink
+	if doc.get("enable_local_ip_symlink") and local_ip:
+		ensure_site_alias_symlink(local_ip, current_site)
+	elif local_ip:
+		remove_site_alias_symlink(local_ip)
 
 
 def sanitize_local_domain(name: str | None, current_site: str) -> str:
@@ -161,12 +202,89 @@ def calculate_expiry_datetime(expiry_type: str | None, custom_minutes: int | Non
 	}
 	minutes = minutes_map.get(expiry_type)
 	if not minutes and expiry_type == "Custom Minutes":
-		minutes = int(custom_minutes or 0)
+		try:
+			minutes = int(custom_minutes or 0)
+		except (ValueError, TypeError):
+			minutes = 0
 
 	if not minutes or minutes <= 0:
 		return None
 
-	return add_to_date(now_datetime(), minutes=minutes)
+	dt = add_to_date(now_datetime(), minutes=minutes)
+	# Strip microseconds so clean timestamps are stored and displayed
+	return dt.replace(microsecond=0)
+
+
+def get_clean_expiry_label(expiry_type: str | None, custom_minutes: int | None = None) -> str:
+	"""Format human-readable label for expiry duration."""
+	if not expiry_type or expiry_type == "No Expiry":
+		return "No Expiry"
+	if expiry_type == "Custom Minutes":
+		mins = int(custom_minutes or 0)
+		return f"{mins} Minutes"
+	return expiry_type
+
+
+def format_clean_datetime(dt) -> str:
+	"""Format datetime cleanly as YYYY-MM-DD HH:mm:ss without microseconds."""
+	if not dt:
+		return ""
+	try:
+		return get_datetime(dt).strftime("%Y-%m-%d %H:%M:%S")
+	except Exception:
+		return str(dt).split(".")[0]
+
+
+# In-process daemon timer for instantaneous background tunnel shutdown
+_expiry_timer = None
+_timer_lock = threading.Lock()
+
+
+def schedule_tunnel_auto_stop(site: str, expires_at):
+	"""Schedule an in-process daemon timer to stop the tunnel when expires_at is reached."""
+	global _expiry_timer
+	with _timer_lock:
+		if _expiry_timer and _expiry_timer.is_alive():
+			_expiry_timer.cancel()
+			_expiry_timer = None
+
+		if not expires_at:
+			return
+
+		try:
+			exp_dt = get_datetime(expires_at)
+			now_dt = now_datetime()
+			delay = (exp_dt - now_dt).total_seconds()
+			if delay <= 0:
+				delay = 0.5
+
+			def _worker():
+				try:
+					import frappe
+					if not frappe.local or not getattr(frappe.local, "site", None):
+						frappe.init(site=site)
+						frappe.connect()
+					check_and_expire_tunnel()
+				except Exception as e:
+					try:
+						frappe.log_error(f"Error in background tunnel auto_stop: {e}")
+					except Exception:
+						pass
+
+			_expiry_timer = threading.Timer(delay, _worker)
+			_expiry_timer.daemon = True
+			_expiry_timer.start()
+		except Exception as e:
+			frappe.log_error(f"Failed to schedule tunnel auto stop: {e}")
+
+
+def cancel_tunnel_auto_stop():
+	"""Cancel active auto-stop timer."""
+	global _expiry_timer
+	with _timer_lock:
+		if _expiry_timer and _expiry_timer.is_alive():
+			_expiry_timer.cancel()
+			_expiry_timer = None
 
 
 class NgrokSettings(Document):
@@ -198,10 +316,8 @@ class NgrokSettings(Document):
 
 		self.local_domain_url = f"http://{self.local_domain}:{port}"
 
-		# Ensure multi-tenant symlinks in sites/
-		ensure_site_alias_symlink(self.local_domain, current_site)
-		ensure_site_alias_symlink(system_mdns, current_site)
-		ensure_site_alias_symlink(local_ip, current_site)
+		# Sync symlinks based on enable toggles
+		sync_symlinks(self, current_site)
 
 		# Check if this site is currently the default_site
 		common_path = get_common_config_path()
@@ -264,15 +380,33 @@ class NgrokSettings(Document):
 		port = self.site_port or get_current_site_port()
 		self.local_domain_url = f"http://{self.local_domain}:{port}"
 
-		# Create site alias symlinks
-		ensure_site_alias_symlink(self.local_domain, current_site)
-		system_mdns = get_mdns_hostname()
-		ensure_site_alias_symlink(system_mdns, current_site)
-		ensure_site_alias_symlink(get_local_ip(), current_site)
+		# Sync symlinks based on toggles
+		sync_symlinks(self, current_site)
 
 		# Restart mDNS broadcast if local_domain changed
 		if self.has_value_changed("local_domain"):
 			self.broadcast_mdns()
+
+		# Recalculate expiry when user modifies expiry_type or custom_expiry_minutes
+		if not self.expiry_type or self.expiry_type == "No Expiry":
+			self.expires_at = None
+			cancel_tunnel_auto_stop()
+		elif self.status == "Running":
+			old_doc = self.get_doc_before_save()
+			old_type = old_doc.expiry_type if old_doc else None
+			old_mins = old_doc.custom_expiry_minutes if old_doc else None
+			if (
+				self.expiry_type != old_type
+				or self.custom_expiry_minutes != old_mins
+				or not self.expires_at
+			):
+				self.expires_at = calculate_expiry_datetime(self.expiry_type, self.custom_expiry_minutes)
+
+			if self.expires_at:
+				schedule_tunnel_auto_stop(current_site, self.expires_at)
+		else:
+			self.expires_at = None
+			cancel_tunnel_auto_stop()
 
 		# Update bench default site if requested
 		if self.has_value_changed("set_as_default_site"):
@@ -355,6 +489,9 @@ def get_tunnel_status() -> dict:
 
 	ngrok_bin = find_ngrok_binary(doc.ngrok_path)
 
+	clean_label = get_clean_expiry_label(doc.expiry_type, doc.custom_expiry_minutes)
+	clean_expires = format_clean_datetime(doc.expires_at)
+
 	return {
 		"status": doc.status,
 		"ngrok_url": doc.ngrok_url or "",
@@ -369,13 +506,17 @@ def get_tunnel_status() -> dict:
 		"mdns_pid": doc.mdns_pid,
 		"started_at": str(doc.started_at or ""),
 		"expiry_type": doc.expiry_type or "No Expiry",
+		"expiry_label": clean_label,
 		"custom_expiry_minutes": doc.custom_expiry_minutes or 0,
-		"expires_at": str(doc.expires_at or ""),
+		"expires_at": clean_expires,
 		"last_error": doc.last_error or "",
 		"ngrok_installed": bool(ngrok_bin),
 		"ngrok_path": ngrok_bin or doc.ngrok_path or "",
 		"os_name": platform.system(),
 		"set_as_default_site": doc.set_as_default_site or 0,
+		"enable_local_domain_symlink": doc.enable_local_domain_symlink,
+		"enable_system_mdns_symlink": doc.enable_system_mdns_symlink,
+		"enable_local_ip_symlink": doc.enable_local_ip_symlink,
 	}
 
 
@@ -393,13 +534,7 @@ def set_local_domain(domain_name: str) -> dict:
 
 	# Clean up previous symlink if changing domain
 	if old_domain and old_domain != formatted_domain:
-		sites_dir = os.path.abspath(os.path.join(frappe.get_site_path(), ".."))
-		old_path = os.path.join(sites_dir, old_domain)
-		if os.path.islink(old_path):
-			try:
-				os.unlink(old_path)
-			except Exception:
-				pass
+		remove_site_alias_symlink(old_domain)
 
 	doc.local_domain = formatted_domain
 	doc.refresh_runtime_values()
@@ -418,6 +553,7 @@ def set_local_domain(domain_name: str) -> dict:
 def set_tunnel_expiry(expiry_type: str, custom_minutes: int | None = None) -> dict:
 	"""Set or update auto-expiry duration for the ngrok tunnel."""
 	doc = frappe.get_single("Ngrok Settings")
+	current_site = frappe.local.site or "localhost"
 	doc.expiry_type = expiry_type or "No Expiry"
 	if custom_minutes is not None:
 		try:
@@ -428,20 +564,26 @@ def set_tunnel_expiry(expiry_type: str, custom_minutes: int | None = None) -> di
 	if doc.status == "Running":
 		if doc.expiry_type != "No Expiry":
 			doc.expires_at = calculate_expiry_datetime(doc.expiry_type, doc.custom_expiry_minutes)
+			schedule_tunnel_auto_stop(current_site, doc.expires_at)
 		else:
 			doc.expires_at = None
+			cancel_tunnel_auto_stop()
 	else:
 		doc.expires_at = None
+		cancel_tunnel_auto_stop()
 
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 
-	label = doc.expiry_type if doc.expiry_type != "No Expiry" else _("No Expiry (Runs continuously)")
+	clean_label = get_clean_expiry_label(doc.expiry_type, doc.custom_expiry_minutes)
+	clean_expires = format_clean_datetime(doc.expires_at)
+
 	return {
 		"expiry_type": doc.expiry_type,
+		"expiry_label": clean_label,
 		"custom_expiry_minutes": doc.custom_expiry_minutes,
-		"expires_at": str(doc.expires_at or ""),
-		"message": _("Tunnel timer set to {0}").format(label),
+		"expires_at": clean_expires,
+		"message": _("Tunnel timer set to {0}").format(clean_label),
 	}
 
 
@@ -486,8 +628,10 @@ def start_tunnel(expiry_type: str | None = None, custom_minutes: int | None = No
 		doc.ngrok_url = https_tunnel.get("public_url")
 		if doc.expiry_type and doc.expiry_type != "No Expiry":
 			doc.expires_at = calculate_expiry_datetime(doc.expiry_type, doc.custom_expiry_minutes)
+			schedule_tunnel_auto_stop(frappe.local.site or "localhost", doc.expires_at)
 		else:
 			doc.expires_at = None
+			cancel_tunnel_auto_stop()
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
 		return {
@@ -497,7 +641,7 @@ def start_tunnel(expiry_type: str | None = None, custom_minutes: int | None = No
 			"local_domain_url": doc.local_domain_url,
 			"local_ip": doc.local_ip,
 			"expiry_type": doc.expiry_type or "No Expiry",
-			"expires_at": str(doc.expires_at or ""),
+			"expires_at": format_clean_datetime(doc.expires_at),
 			"message": _("Ngrok tunnel is already running."),
 		}
 
@@ -574,8 +718,10 @@ def start_tunnel(expiry_type: str | None = None, custom_minutes: int | None = No
 		# Calculate expiry timestamp
 		if doc.expiry_type and doc.expiry_type != "No Expiry":
 			doc.expires_at = calculate_expiry_datetime(doc.expiry_type, doc.custom_expiry_minutes)
+			schedule_tunnel_auto_stop(frappe.local.site or "localhost", doc.expires_at)
 		else:
 			doc.expires_at = None
+			cancel_tunnel_auto_stop()
 
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
@@ -587,7 +733,7 @@ def start_tunnel(expiry_type: str | None = None, custom_minutes: int | None = No
 			"local_domain_url": doc.local_domain_url,
 			"local_ip": doc.local_ip,
 			"expiry_type": doc.expiry_type or "No Expiry",
-			"expires_at": str(doc.expires_at or ""),
+			"expires_at": format_clean_datetime(doc.expires_at),
 			"message": _("Ngrok tunnel started successfully!"),
 		}
 	else:
@@ -622,6 +768,7 @@ def start_tunnel(expiry_type: str | None = None, custom_minutes: int | None = No
 @frappe.whitelist()
 def stop_tunnel() -> dict:
 	"""Stop the active ngrok tunnel and clear timer."""
+	cancel_tunnel_auto_stop()
 	doc = frappe.get_single("Ngrok Settings")
 
 	# Terminate tracked PID if alive
@@ -735,6 +882,12 @@ def setup_default_settings():
 			doc.ngrok_path = shutil.which("ngrok") or "/usr/local/bin/ngrok"
 		if not doc.expiry_type:
 			doc.expiry_type = "No Expiry"
+		if doc.enable_local_domain_symlink is None:
+			doc.enable_local_domain_symlink = 1
+		if doc.enable_system_mdns_symlink is None:
+			doc.enable_system_mdns_symlink = 0
+		if doc.enable_local_ip_symlink is None:
+			doc.enable_local_ip_symlink = 0
 		doc.refresh_runtime_values()
 		doc.save(ignore_permissions=True)
 
