@@ -31,6 +31,14 @@ def get_local_ip() -> str:
 		s.close()
 
 
+def get_mdns_hostname() -> str:
+	"""Return local mDNS system hostname e.g. bajrang-Latitude-7480.local."""
+	hostname = socket.gethostname()
+	if not hostname.endswith(".local"):
+		return f"{hostname}.local"
+	return hostname
+
+
 def get_current_site_port() -> int:
 	"""Retrieve the webserver port configured for this bench/site."""
 	port = frappe.conf.get("webserver_port")
@@ -111,14 +119,6 @@ def get_common_config_path() -> str:
 	return os.path.abspath(os.path.join(frappe.get_site_path(), "..", "common_site_config.json"))
 
 
-def get_mdns_hostname() -> str:
-	"""Return local mDNS hostname e.g. bajrang-Latitude-7480.local."""
-	hostname = socket.gethostname()
-	if not hostname.endswith(".local"):
-		return f"{hostname}.local"
-	return hostname
-
-
 def ensure_site_alias_symlink(alias_domain: str, target_site: str):
 	"""Create a symlink in sites/ so Frappe multi-tenant router recognizes the domain."""
 	if not alias_domain or alias_domain == target_site:
@@ -134,33 +134,50 @@ def ensure_site_alias_symlink(alias_domain: str, target_site: str):
 			frappe.log_error(f"Failed to create site alias symlink {alias_path}: {e}")
 
 
+def sanitize_local_domain(name: str | None, current_site: str) -> str:
+	"""Format a user-provided domain to a clean .local name."""
+	if not name:
+		prefix = current_site.replace(".localhost", "").replace(".", "-")
+		return f"{prefix}.local"
+
+	name = name.strip().lower()
+	if not name.endswith(".local"):
+		name = f"{name}.local"
+	return name
+
+
 class NgrokSettings(Document):
 	def onload(self):
 		self.refresh_runtime_values()
 
 	def refresh_runtime_values(self):
-		"""Detect and update live URLs, local IP, and tunnel state."""
-		local_ip = get_local_ip()
+		"""Detect and update live URLs, local IP, .local domain, and tunnel state."""
+		current_site = frappe.local.site or "localhost"
 		port = self.site_port or get_current_site_port()
+		local_ip = get_local_ip()
+		system_mdns = get_mdns_hostname()
+
+		self.site_port = port
 		self.local_ip = local_ip
 		self.local_network_url = f"http://{local_ip}:{port}"
+		self.system_mdns_hostname = system_mdns
+		self.system_mdns_url = f"http://{system_mdns}:{port}"
 
-		current_site = frappe.local.site or "localhost"
 		if not self.host_header:
 			self.host_header = current_site
 
-		if not self.site_port:
-			self.site_port = port
+		# Ensure clean local_domain name
+		current_domain = self.get("local_domain")
+		if not current_domain or ".sslip.io" in current_domain:
+			site_prefix = current_site.replace(".localhost", "").replace(".", "-")
+			current_domain = f"{site_prefix}.local"
+			self.local_domain = current_domain
 
-		mdns_host = get_mdns_hostname()
-		local_domain = self.get("local_domain")
-		if not local_domain or ".sslip.io" in local_domain:
-			local_domain = mdns_host
-			self.local_domain = local_domain
+		self.local_domain_url = f"http://{self.local_domain}:{port}"
 
-		self.local_domain_url = f"http://{local_domain}:{port}"
-		ensure_site_alias_symlink(local_domain, current_site)
-		ensure_site_alias_symlink(mdns_host, current_site)
+		# Ensure multi-tenant symlinks in sites/
+		ensure_site_alias_symlink(self.local_domain, current_site)
+		ensure_site_alias_symlink(system_mdns, current_site)
 		ensure_site_alias_symlink(local_ip, current_site)
 
 		# Check if this site is currently the default_site
@@ -178,6 +195,10 @@ class NgrokSettings(Document):
 			self.ngrok_path = discovered
 		elif not self.ngrok_path:
 			self.ngrok_path = shutil.which("ngrok") or "/usr/local/bin/ngrok"
+
+		# Check mDNS broadcast daemon status
+		if self.mdns_pid and not is_pid_alive(self.mdns_pid):
+			self.mdns_pid = 0
 
 		# Check live ngrok daemon status
 		api_data = query_ngrok_api()
@@ -203,11 +224,24 @@ class NgrokSettings(Document):
 		if not self.ngrok_path:
 			self.ngrok_path = shutil.which("ngrok") or "/usr/local/bin/ngrok"
 
-		local_domain = self.get("local_domain")
-		if local_domain:
-			ensure_site_alias_symlink(local_domain, current_site)
-			port = self.site_port or get_current_site_port()
-			self.local_domain_url = f"http://{local_domain}:{port}"
+		# Format local_domain
+		if self.local_domain:
+			self.local_domain = sanitize_local_domain(self.local_domain, current_site)
+		else:
+			self.local_domain = sanitize_local_domain(None, current_site)
+
+		port = self.site_port or get_current_site_port()
+		self.local_domain_url = f"http://{self.local_domain}:{port}"
+
+		# Create site alias symlinks
+		ensure_site_alias_symlink(self.local_domain, current_site)
+		system_mdns = get_mdns_hostname()
+		ensure_site_alias_symlink(system_mdns, current_site)
+		ensure_site_alias_symlink(get_local_ip(), current_site)
+
+		# Restart mDNS broadcast if local_domain changed
+		if self.has_value_changed("local_domain"):
+			self.broadcast_mdns()
 
 		# Update bench default site if requested
 		if self.has_value_changed("set_as_default_site"):
@@ -249,10 +283,42 @@ class NgrokSettings(Document):
 			err = e.stderr or e.stdout
 			frappe.throw(_("Failed to update ngrok token: {0}").format(err))
 
+	def broadcast_mdns(self):
+		"""Broadcast the custom .local domain over mDNS using avahi-publish on Linux."""
+		if platform.system().lower() != "linux":
+			return
+
+		avahi_bin = shutil.which("avahi-publish")
+		if not avahi_bin:
+			return
+
+		domain = self.local_domain
+		if not domain or domain == get_mdns_hostname():
+			return
+
+		# Stop previous publisher if running
+		if self.mdns_pid and is_pid_alive(self.mdns_pid):
+			try:
+				os.kill(self.mdns_pid, signal.SIGTERM)
+			except Exception:
+				pass
+
+		local_ip = get_local_ip()
+		try:
+			proc = subprocess.Popen(
+				[avahi_bin, "-a", "-R", domain, local_ip],
+				stdout=subprocess.DEVNULL,
+				stderr=subprocess.DEVNULL,
+				start_new_session=True,
+			)
+			self.mdns_pid = proc.pid
+		except Exception as e:
+			frappe.log_error(f"Failed to start avahi-publish for {domain}: {e}")
+
 
 @frappe.whitelist()
 def get_tunnel_status() -> dict:
-	"""Fetch live status of the ngrok tunnel and local network info."""
+	"""Fetch live status of local IP, .local domain, and ngrok tunnel."""
 	doc = frappe.get_single("Ngrok Settings")
 	doc.refresh_runtime_values()
 	doc.save(ignore_permissions=True)
@@ -266,15 +332,41 @@ def get_tunnel_status() -> dict:
 		"local_network_url": doc.local_network_url or "",
 		"local_domain_url": doc.local_domain_url or "",
 		"local_domain": doc.local_domain or "",
+		"system_mdns_hostname": doc.system_mdns_hostname or "",
+		"system_mdns_url": doc.system_mdns_url or "",
 		"local_ip": doc.local_ip or "",
 		"site_port": doc.site_port,
 		"tunnel_pid": doc.tunnel_pid,
+		"mdns_pid": doc.mdns_pid,
 		"started_at": str(doc.started_at or ""),
 		"last_error": doc.last_error or "",
 		"ngrok_installed": bool(ngrok_bin),
 		"ngrok_path": ngrok_bin or doc.ngrok_path or "",
 		"os_name": platform.system(),
 		"set_as_default_site": doc.set_as_default_site or 0,
+	}
+
+
+@frappe.whitelist()
+def set_local_domain(domain_name: str) -> dict:
+	"""Set and broadcast a custom local domain name (e.g. sbmpl.local)."""
+	if not domain_name or not domain_name.strip():
+		frappe.throw(_("Domain name cannot be empty."))
+
+	current_site = frappe.local.site or "localhost"
+	formatted_domain = sanitize_local_domain(domain_name, current_site)
+
+	doc = frappe.get_single("Ngrok Settings")
+	doc.local_domain = formatted_domain
+	doc.refresh_runtime_values()
+	doc.broadcast_mdns()
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+
+	return {
+		"local_domain": doc.local_domain,
+		"local_domain_url": doc.local_domain_url,
+		"message": _("Local domain updated to {0}").format(doc.local_domain),
 	}
 
 
@@ -297,6 +389,7 @@ def start_tunnel() -> dict:
 			"status": "Running",
 			"ngrok_url": doc.ngrok_url,
 			"local_network_url": doc.local_network_url,
+			"local_domain_url": doc.local_domain_url,
 			"local_ip": doc.local_ip,
 			"message": _("Ngrok tunnel is already running."),
 		}
@@ -378,6 +471,7 @@ def start_tunnel() -> dict:
 			"status": "Running",
 			"ngrok_url": public_url,
 			"local_network_url": doc.local_network_url,
+			"local_domain_url": doc.local_domain_url,
 			"local_ip": doc.local_ip,
 			"message": _("Ngrok tunnel started successfully!"),
 		}

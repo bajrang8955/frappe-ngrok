@@ -5,45 +5,117 @@
  "engine": "InnoDB",
  "field_order": [
   "status_card",
-  "control_section",
+  "local_domain_section",
+  "local_domain",
+  "local_domain_url",
+  "col_break_domain",
+  "system_mdns_hostname",
+  "system_mdns_url",
+  "local_ip_section",
+  "local_ip",
+  "local_network_url",
+  "col_break_ip",
+  "set_as_default_site",
+  "ngrok_section",
   "status",
   "ngrok_url",
-  "col_break_1",
-  "local_domain_url",
-  "local_network_url",
-  "local_domain",
-  "local_ip",
-  "set_as_default_site",
+  "col_break_ngrok",
+  "custom_domain",
   "config_section",
   "site_port",
   "host_header",
-  "col_break_2",
-  "custom_domain",
+  "col_break_config",
   "ngrok_path",
   "auth_section",
   "auth_token",
   "proc_section",
   "tunnel_pid",
+  "mdns_pid",
   "started_at",
-  "col_break_3",
+  "col_break_proc",
   "last_error"
  ],
  "fields": [
   {
    "fieldname": "status_card",
    "fieldtype": "HTML",
-   "label": "Tunnel Dashboard"
+   "label": "Access Hub Dashboard"
   },
   {
-   "fieldname": "control_section",
+   "fieldname": "local_domain_section",
    "fieldtype": "Section Break",
-   "label": "Access Links & Status"
+   "label": "1. Local Domain (.local mDNS)"
+  },
+  {
+   "description": "Custom local domain for this site (e.g. sbmpl.local or mysite.local). Frappe links this domain and broadcasts it over local mDNS.",
+   "fieldname": "local_domain",
+   "fieldtype": "Data",
+   "label": "Local Domain Name"
+  },
+  {
+   "description": "Primary URL to access this site on local Wi-Fi without conflicting with other sites",
+   "fieldname": "local_domain_url",
+   "fieldtype": "Data",
+   "label": "Local Domain URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_domain",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Default machine mDNS hostname broadcasted by Ubuntu/macOS",
+   "fieldname": "system_mdns_hostname",
+   "fieldtype": "Data",
+   "label": "System mDNS Hostname",
+   "read_only": 1
+  },
+  {
+   "description": "Fallback URL using your machine's built-in hostname",
+   "fieldname": "system_mdns_url",
+   "fieldtype": "Data",
+   "label": "System Hostname URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "local_ip_section",
+   "fieldtype": "Section Break",
+   "label": "2. Direct Local IP (LAN)"
+  },
+  {
+   "fieldname": "local_ip",
+   "fieldtype": "Data",
+   "label": "Local IP Address",
+   "read_only": 1
+  },
+  {
+   "description": "Direct IP address URL on your local Wi-Fi network",
+   "fieldname": "local_network_url",
+   "fieldtype": "Data",
+   "label": "Direct IP URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_ip",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Route direct IP access (http://<local_ip>:<port>) to this site as the bench default site",
+   "fieldname": "set_as_default_site",
+   "fieldtype": "Check",
+   "label": "Set As Bench Default Site"
+  },
+  {
+   "fieldname": "ngrok_section",
+   "fieldtype": "Section Break",
+   "label": "3. Ngrok Public Tunnel (Internet)"
   },
   {
    "default": "Stopped",
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Status",
+   "label": "Tunnel Status",
    "options": "Stopped\nRunning\nError",
    "read_only": 1
   },
@@ -54,45 +126,19 @@
    "read_only": 1
   },
   {
-   "fieldname": "col_break_1",
+   "fieldname": "col_break_ngrok",
    "fieldtype": "Column Break"
   },
   {
-   "description": "Unique wildcard local domain to access this specific site when multiple sites run on the bench",
-   "fieldname": "local_domain_url",
+   "description": "Optional: Reserved ngrok domain (e.g. mydomain.ngrok-free.app)",
+   "fieldname": "custom_domain",
    "fieldtype": "Data",
-   "label": "Multi-Site Local URL",
-   "read_only": 1
-  },
-  {
-   "fieldname": "local_network_url",
-   "fieldtype": "Data",
-   "label": "Direct IP URL",
-   "read_only": 1
-  },
-  {
-   "description": "Domain alias mapped to this site (default: <site>.<local-ip>.sslip.io)",
-   "fieldname": "local_domain",
-   "fieldtype": "Data",
-   "label": "Local Domain Alias"
-  },
-  {
-   "fieldname": "local_ip",
-   "fieldtype": "Data",
-   "label": "Local IP Address",
-   "read_only": 1
-  },
-  {
-   "default": "0",
-   "description": "Route direct IP access (http://<local_ip>:<port>) to this site as the default site",
-   "fieldname": "set_as_default_site",
-   "fieldtype": "Check",
-   "label": "Set As Bench Default Site"
+   "label": "Custom Ngrok Domain (Optional)"
   },
   {
    "fieldname": "config_section",
    "fieldtype": "Section Break",
-   "label": "Tunnel Configuration"
+   "label": "Bench & Server Configuration"
   },
   {
    "default": "8002",
@@ -108,14 +154,8 @@
    "label": "Host Header"
   },
   {
-   "fieldname": "col_break_2",
+   "fieldname": "col_break_config",
    "fieldtype": "Column Break"
-  },
-  {
-   "description": "Optional: Reserved ngrok domain (e.g. mydomain.ngrok-free.app)",
-   "fieldname": "custom_domain",
-   "fieldtype": "Data",
-   "label": "Custom Domain (Optional)"
   },
   {
    "default": "/usr/local/bin/ngrok",
@@ -149,13 +189,19 @@
    "read_only": 1
   },
   {
+   "fieldname": "mdns_pid",
+   "fieldtype": "Int",
+   "label": "mDNS Publisher PID",
+   "read_only": 1
+  },
+  {
    "fieldname": "started_at",
    "fieldtype": "Datetime",
    "label": "Tunnel Started At",
    "read_only": 1
   },
   {
-   "fieldname": "col_break_3",
+   "fieldname": "col_break_proc",
    "fieldtype": "Column Break"
   },
   {
@@ -166,7 +212,7 @@
   }
  ],
  "issingle": 1,
- "modified": "2026-10-08 15:45:00.000000",
+ "modified": "2026-10-08 16:25:00.000000",
  "modified_by": "Administrator",
  "module": "Frappe Ngrok",
  "name": "Ngrok Settings",
