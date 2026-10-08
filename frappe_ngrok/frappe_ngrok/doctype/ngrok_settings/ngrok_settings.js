@@ -129,7 +129,8 @@ function setup_custom_buttons(frm) {
 }
 
 function show_change_domain_dialog(frm) {
-	let currentDomain = frm.doc.local_domain || "sbmpl.local";
+	frm = frm || cur_frm;
+	let currentDomain = (frm && frm.doc && frm.doc.local_domain) || "sbmpl.local";
 	frappe.prompt(
 		[
 			{
@@ -157,7 +158,7 @@ function show_change_domain_dialog(frm) {
 							message: r.message.message || __("Local domain updated!"),
 							indicator: "green"
 						});
-						frm.reload_doc();
+						if (frm) frm.reload_doc();
 					}
 				}
 			});
@@ -168,6 +169,7 @@ function show_change_domain_dialog(frm) {
 }
 
 function show_update_token_dialog(frm) {
+	frm = frm || cur_frm;
 	let d = new frappe.ui.Dialog({
 		title: __("Configure Ngrok Authtoken"),
 		fields: [
@@ -197,7 +199,7 @@ function show_update_token_dialog(frm) {
 							message: __("Authtoken updated successfully!"),
 							indicator: "green"
 						});
-						frm.reload_doc();
+						if (frm) frm.reload_doc();
 					}
 				}
 			});
@@ -207,6 +209,7 @@ function show_update_token_dialog(frm) {
 }
 
 function trigger_auto_install(frm) {
+	frm = frm || cur_frm;
 	frappe.call({
 		method: "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.auto_install_ngrok",
 		freeze: true,
@@ -218,13 +221,23 @@ function trigger_auto_install(frm) {
 					indicator: "green",
 					message: r.message.message || __("Ngrok installed successfully!")
 				});
-				frm.reload_doc();
+				if (frm) frm.reload_doc();
 			}
 		}
 	});
 }
 
+// Expose on global window object to prevent any ReferenceErrors
+window.frappe_ngrok = {
+	show_change_domain_dialog: show_change_domain_dialog,
+	show_update_token_dialog: show_update_token_dialog,
+	trigger_auto_install: trigger_auto_install
+};
+window.show_change_domain_dialog = show_change_domain_dialog;
+window.show_update_token_dialog = show_update_token_dialog;
+
 function render_status_card(frm) {
+	if (!frm || !frm.doc) return;
 	const doc = frm.doc;
 	const isRunning = doc.status === "Running";
 	const isInstalled = doc.__ngrok_installed !== false;
@@ -253,7 +266,7 @@ function render_status_card(frm) {
 							Click the button below to download and configure ngrok automatically without root access.
 						</p>
 					</div>
-					<button class="btn btn-sm btn-primary" onclick="frappe.call({method: 'frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.auto_install_ngrok', freeze: true, freeze_message: 'Installing Ngrok...', callback: () => cur_frm.reload_doc()});">
+					<button class="btn btn-sm btn-primary btn-auto-install">
 						🚀 Install Ngrok Automatically
 					</button>
 				</div>
@@ -298,13 +311,13 @@ function render_status_card(frm) {
 						</div>
 
 						<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
-							<button class="btn btn-xs btn-default" onclick="frappe.utils.copy_to_clipboard('${localDomainUrl}'); frappe.show_alert(__('Copied Local Domain URL!'), 2);">
+							<button class="btn btn-xs btn-default btn-copy-domain">
 								📋 Copy
 							</button>
-							<button class="btn btn-xs btn-default" onclick="window.open('${localDomainUrl}', '_blank');">
+							<button class="btn btn-xs btn-default btn-open-domain">
 								🚀 Open
 							</button>
-							<button class="btn btn-xs btn-primary" onclick="cur_frm.cscript.show_change_domain_dialog ? cur_frm.cscript.show_change_domain_dialog(cur_frm) : show_change_domain_dialog(cur_frm);">
+							<button class="btn btn-xs btn-primary btn-set-domain">
 								✏️ Set Domain Name
 							</button>
 						</div>
@@ -337,10 +350,10 @@ function render_status_card(frm) {
 						</div>
 
 						<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
-							<button class="btn btn-xs btn-default" onclick="frappe.utils.copy_to_clipboard('${localIpUrl}'); frappe.show_alert(__('Copied Local IP URL!'), 2);">
+							<button class="btn btn-xs btn-default btn-copy-ip">
 								📋 Copy
 							</button>
-							<button class="btn btn-xs btn-default" onclick="window.open('${localIpUrl}', '_blank');">
+							<button class="btn btn-xs btn-default btn-open-ip">
 								🚀 Open
 							</button>
 						</div>
@@ -377,21 +390,21 @@ function render_status_card(frm) {
 							${
 								isRunning && ngrokUrl
 									? `
-								<button class="btn btn-xs btn-default" onclick="frappe.utils.copy_to_clipboard('${ngrokUrl}'); frappe.show_alert(__('Copied Ngrok URL!'), 2);">
+								<button class="btn btn-xs btn-default btn-copy-ngrok">
 									📋 Copy
 								</button>
-								<button class="btn btn-xs btn-default" onclick="window.open('${ngrokUrl}', '_blank');">
+								<button class="btn btn-xs btn-default btn-open-ngrok">
 									🚀 Open
 								</button>
-								<button class="btn btn-xs btn-danger" onclick="frappe.call({method: 'frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.stop_tunnel', freeze: true, callback: () => cur_frm.reload_doc()});">
+								<button class="btn btn-xs btn-danger btn-stop-tunnel">
 									⏹️ Stop
 								</button>
 							`
 									: `
-								<button class="btn btn-xs btn-primary" onclick="frappe.call({method: 'frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.start_tunnel', freeze: true, callback: () => cur_frm.reload_doc()});">
+								<button class="btn btn-xs btn-primary btn-start-tunnel">
 									▶️ Start Tunnel
 								</button>
-								<button class="btn btn-xs btn-default" onclick="cur_frm.cscript.show_update_token_dialog ? cur_frm.cscript.show_update_token_dialog(cur_frm) : show_update_token_dialog(cur_frm);">
+								<button class="btn btn-xs btn-default btn-set-token">
 									🔑 Set Token
 								</button>
 							`
@@ -423,5 +436,76 @@ function render_status_card(frm) {
 		</div>
 	`;
 
-	frm.get_field("status_card").$wrapper.html(html);
+	const field = frm.get_field("status_card");
+	if (!field || !field.$wrapper) return;
+	const $wrap = field.$wrapper;
+	$wrap.html(html);
+
+	// Safe jQuery Event Bindings
+	$wrap.find(".btn-copy-domain").off("click").on("click", function () {
+		frappe.utils.copy_to_clipboard(localDomainUrl);
+		frappe.show_alert(__("Copied Local Domain URL!"), 2);
+	});
+
+	$wrap.find(".btn-open-domain").off("click").on("click", function () {
+		window.open(localDomainUrl, "_blank");
+	});
+
+	$wrap.find(".btn-set-domain").off("click").on("click", function () {
+		show_change_domain_dialog(frm);
+	});
+
+	$wrap.find(".btn-copy-ip").off("click").on("click", function () {
+		frappe.utils.copy_to_clipboard(localIpUrl);
+		frappe.show_alert(__("Copied Local IP URL!"), 2);
+	});
+
+	$wrap.find(".btn-open-ip").off("click").on("click", function () {
+		window.open(localIpUrl, "_blank");
+	});
+
+	$wrap.find(".btn-copy-ngrok").off("click").on("click", function () {
+		frappe.utils.copy_to_clipboard(ngrokUrl);
+		frappe.show_alert(__("Copied Ngrok URL!"), 2);
+	});
+
+	$wrap.find(".btn-open-ngrok").off("click").on("click", function () {
+		window.open(ngrokUrl, "_blank");
+	});
+
+	$wrap.find(".btn-start-tunnel").off("click").on("click", function () {
+		frappe.call({
+			method: "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.start_tunnel",
+			freeze: true,
+			freeze_message: __("Starting Ngrok Tunnel..."),
+			callback: function (r) {
+				if (!r.exc) {
+					frappe.show_alert({ message: __("Ngrok tunnel started!"), indicator: "green" });
+					frm.reload_doc();
+				}
+			}
+		});
+	});
+
+	$wrap.find(".btn-stop-tunnel").off("click").on("click", function () {
+		frappe.call({
+			method: "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.stop_tunnel",
+			freeze: true,
+			freeze_message: __("Stopping Ngrok Tunnel..."),
+			callback: function (r) {
+				if (!r.exc) {
+					frappe.show_alert({ message: __("Ngrok tunnel stopped"), indicator: "orange" });
+					frm.reload_doc();
+				}
+			}
+		});
+	});
+
+	$wrap.find(".btn-set-token").off("click").on("click", function () {
+		show_update_token_dialog(frm);
+	});
+
+	$wrap.find(".btn-auto-install").off("click").on("click", function () {
+		trigger_auto_install(frm);
+	});
 }
