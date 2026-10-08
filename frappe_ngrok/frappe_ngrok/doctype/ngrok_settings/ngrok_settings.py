@@ -106,6 +106,26 @@ def find_ngrok_binary(configured_path: str | None = None) -> str | None:
 	return None
 
 
+def get_common_config_path() -> str:
+	"""Retrieve path to common_site_config.json."""
+	return os.path.abspath(os.path.join(frappe.get_site_path(), "..", "common_site_config.json"))
+
+
+def ensure_site_alias_symlink(alias_domain: str, target_site: str):
+	"""Create a symlink in sites/ so Frappe multi-tenant router recognizes the domain."""
+	if not alias_domain or alias_domain == target_site:
+		return
+
+	sites_dir = os.path.abspath(os.path.join(frappe.get_site_path(), ".."))
+	alias_path = os.path.join(sites_dir, alias_domain)
+
+	if not os.path.exists(alias_path) and not os.path.islink(alias_path):
+		try:
+			os.symlink(target_site, alias_path)
+		except Exception as e:
+			frappe.log_error(f"Failed to create site alias symlink {alias_path}: {e}")
+
+
 class NgrokSettings(Document):
 	def onload(self):
 		self.refresh_runtime_values()
@@ -117,11 +137,31 @@ class NgrokSettings(Document):
 		self.local_ip = local_ip
 		self.local_network_url = f"http://{local_ip}:{port}"
 
+		current_site = frappe.local.site or "localhost"
 		if not self.host_header:
-			self.host_header = frappe.local.site or "localhost"
+			self.host_header = current_site
 
 		if not self.site_port:
 			self.site_port = port
+
+		local_domain = self.get("local_domain")
+		if not local_domain:
+			site_prefix = current_site.replace(".localhost", "").replace(".", "-")
+			local_domain = f"{site_prefix}.{local_ip}.sslip.io"
+			self.local_domain = local_domain
+
+		self.local_domain_url = f"http://{local_domain}:{port}"
+		ensure_site_alias_symlink(local_domain, current_site)
+
+		# Check if this site is currently the default_site
+		common_path = get_common_config_path()
+		if os.path.exists(common_path):
+			try:
+				with open(common_path) as f:
+					common_cfg = json.load(f)
+					self.set_as_default_site = 1 if common_cfg.get("default_site") == current_site else 0
+			except Exception:
+				pass
 
 		discovered = find_ngrok_binary(self.ngrok_path)
 		if discovered:
@@ -145,12 +185,36 @@ class NgrokSettings(Document):
 				self.ngrok_url = ""
 
 	def validate(self):
+		current_site = frappe.local.site or "localhost"
 		if not self.host_header:
-			self.host_header = frappe.local.site or "localhost"
+			self.host_header = current_site
 		if not self.site_port:
 			self.site_port = get_current_site_port()
 		if not self.ngrok_path:
 			self.ngrok_path = shutil.which("ngrok") or "/usr/local/bin/ngrok"
+
+		local_domain = self.get("local_domain")
+		if local_domain:
+			ensure_site_alias_symlink(local_domain, current_site)
+			port = self.site_port or get_current_site_port()
+			self.local_domain_url = f"http://{local_domain}:{port}"
+
+		# Update bench default site if requested
+		if self.has_value_changed("set_as_default_site"):
+			common_path = get_common_config_path()
+			if os.path.exists(common_path):
+				try:
+					with open(common_path) as f:
+						common_cfg = json.load(f)
+					if self.set_as_default_site:
+						common_cfg["default_site"] = current_site
+						common_cfg["serve_default_site"] = True
+					elif common_cfg.get("default_site") == current_site:
+						common_cfg["default_site"] = ""
+					with open(common_path, "w") as f:
+						json.dump(common_cfg, f, indent=1)
+				except Exception as e:
+					frappe.log_error(f"Failed to update default_site in common_site_config.json: {e}")
 
 		# If user modified the auth_token field in the form, apply it to the ngrok config
 		token = self.get_password("auth_token", raise_exception=False)
@@ -190,6 +254,8 @@ def get_tunnel_status() -> dict:
 		"status": doc.status,
 		"ngrok_url": doc.ngrok_url or "",
 		"local_network_url": doc.local_network_url or "",
+		"local_domain_url": doc.local_domain_url or "",
+		"local_domain": doc.local_domain or "",
 		"local_ip": doc.local_ip or "",
 		"site_port": doc.site_port,
 		"tunnel_pid": doc.tunnel_pid,
@@ -198,6 +264,7 @@ def get_tunnel_status() -> dict:
 		"ngrok_installed": bool(ngrok_bin),
 		"ngrok_path": ngrok_bin or doc.ngrok_path or "",
 		"os_name": platform.system(),
+		"set_as_default_site": doc.set_as_default_site or 0,
 	}
 
 

@@ -9,8 +9,11 @@
   "status",
   "ngrok_url",
   "col_break_1",
+  "local_domain_url",
   "local_network_url",
+  "local_domain",
   "local_ip",
+  "set_as_default_site",
   "config_section",
   "site_port",
   "host_header",
@@ -55,16 +58,36 @@
    "fieldtype": "Column Break"
   },
   {
+   "description": "Unique wildcard local domain to access this specific site when multiple sites run on the bench",
+   "fieldname": "local_domain_url",
+   "fieldtype": "Data",
+   "label": "Multi-Site Local URL",
+   "read_only": 1
+  },
+  {
    "fieldname": "local_network_url",
    "fieldtype": "Data",
-   "label": "Local Network URL",
+   "label": "Direct IP URL",
    "read_only": 1
+  },
+  {
+   "description": "Domain alias mapped to this site (default: <site>.<local-ip>.sslip.io)",
+   "fieldname": "local_domain",
+   "fieldtype": "Data",
+   "label": "Local Domain Alias"
   },
   {
    "fieldname": "local_ip",
    "fieldtype": "Data",
    "label": "Local IP Address",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Route direct IP access (http://<local_ip>:<port>) to this site as the default site",
+   "fieldname": "set_as_default_site",
+   "fieldtype": "Check",
+   "label": "Set As Bench Default Site"
   },
   {
    "fieldname": "config_section",
@@ -143,7 +166,7 @@
   }
  ],
  "issingle": 1,
- "modified": "2026-10-08 15:15:00.000000",
+ "modified": "2026-10-08 15:45:00.000000",
  "modified_by": "Administrator",
  "module": "Frappe Ngrok",
  "name": "Ngrok Settings",
@@ -162,4 +185,3 @@
  "states": [],
  "track_changes": 0
 }
-
