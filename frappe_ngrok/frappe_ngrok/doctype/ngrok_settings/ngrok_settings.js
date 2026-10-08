@@ -3,6 +3,17 @@
 
 frappe.ui.form.on("Ngrok Settings", {
 	refresh(frm) {
+		frappe.call({
+			method: "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.get_tunnel_status",
+			callback: function (r) {
+				if (r.message) {
+					frm.doc.__ngrok_installed = r.message.ngrok_installed;
+					frm.doc.__os_name = r.message.os_name;
+					render_status_card(frm);
+					setup_custom_buttons(frm);
+				}
+			}
+		});
 		render_status_card(frm);
 		setup_custom_buttons(frm);
 	},
@@ -24,9 +35,14 @@ frappe.ui.form.on("Ngrok Settings", {
 function setup_custom_buttons(frm) {
 	frm.clear_custom_buttons();
 
+	const isInstalled = frm.doc.__ngrok_installed !== false;
 	const isRunning = frm.doc.status === "Running";
 
-	if (isRunning) {
+	if (!isInstalled) {
+		frm.add_custom_button(__("Install Ngrok Automatically"), () => {
+			trigger_auto_install(frm);
+		}).addClass("btn-primary");
+	} else if (isRunning) {
 		frm.add_custom_button(__("Stop Tunnel"), () => {
 			frappe.confirm(__("Are you sure you want to stop the ngrok tunnel?"), () => {
 				frappe.call({
@@ -78,6 +94,10 @@ function setup_custom_buttons(frm) {
 			freeze_message: __("Checking Tunnel Status..."),
 			callback: function (r) {
 				if (!r.exc) {
+					if (r.message) {
+						frm.doc.__ngrok_installed = r.message.ngrok_installed;
+						frm.doc.__os_name = r.message.os_name;
+					}
 					frappe.show_alert({
 						message: __("Status refreshed"),
 						indicator: "blue"
@@ -90,6 +110,24 @@ function setup_custom_buttons(frm) {
 
 	frm.add_custom_button(__("Update Ngrok Token"), () => {
 		show_update_token_dialog(frm);
+	});
+}
+
+function trigger_auto_install(frm) {
+	frappe.call({
+		method: "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.auto_install_ngrok",
+		freeze: true,
+		freeze_message: __("Downloading & Installing Ngrok for your OS..."),
+		callback: function (r) {
+			if (!r.exc && r.message) {
+				frappe.msgprint({
+					title: __("Ngrok Installed"),
+					indicator: "green",
+					message: r.message.message || __("Ngrok installed successfully!")
+				});
+				frm.reload_doc();
+			}
+		}
 	});
 }
 
@@ -135,6 +173,8 @@ function show_update_token_dialog(frm) {
 function render_status_card(frm) {
 	const doc = frm.doc;
 	const isRunning = doc.status === "Running";
+	const isInstalled = doc.__ngrok_installed !== false;
+	const osName = doc.__os_name || "Linux / macOS";
 	const ngrokUrl = doc.ngrok_url || "";
 	const localUrl = doc.local_network_url || "";
 	const localIp = doc.local_ip || "Unknown";
@@ -144,6 +184,26 @@ function render_status_card(frm) {
 		: doc.status === "Error"
 		? `<span class="indicator-pill red" style="font-size: 13px; font-weight: 600; padding: 4px 10px;">🔴 Error</span>`
 		: `<span class="indicator-pill gray" style="font-size: 13px; font-weight: 600; padding: 4px 10px;">⚪ Tunnel Stopped</span>`;
+
+	let installNotice = "";
+	if (!isInstalled) {
+		installNotice = `
+			<div style="background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 14px; margin-bottom: 16px;">
+				<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+					<div>
+						<strong style="color: #92400e; font-size: 14px;">⚠️ Ngrok is not detected on this system (${osName})</strong>
+						<p style="margin: 4px 0 0 0; font-size: 12px; color: #b45309;">
+							Click the button to download and configure ngrok automatically without terminal access, or run:
+							<br><strong>macOS:</strong> <code>brew install ngrok</code> | <strong>Ubuntu/Debian:</strong> <code>sudo snap install ngrok</code>
+						</p>
+					</div>
+					<button class="btn btn-sm btn-primary" onclick="cur_frm.cscript.trigger_auto_install ? cur_frm.cscript.trigger_auto_install() : frappe.call({method: 'frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.auto_install_ngrok', freeze: true, freeze_message: 'Installing Ngrok...', callback: () => cur_frm.reload_doc()});">
+						🚀 Install Ngrok Automatically
+					</button>
+				</div>
+			</div>
+		`;
+	}
 
 	let qrNgrok = "";
 	if (isRunning && ngrokUrl) {
@@ -169,6 +229,8 @@ function render_status_card(frm) {
 
 	const html = `
 		<div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; padding: 18px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+			${installNotice}
+
 			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
 				<div>
 					<h4 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-color);">Frappe Mobile &amp; Remote Access Control</h4>
@@ -244,4 +306,3 @@ function render_status_card(frm) {
 	frm.set_df_property("status_card", "options", html);
 	frm.refresh_field("status_card");
 }
-

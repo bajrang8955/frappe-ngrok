@@ -1,6 +1,6 @@
 app_name = "frappe_ngrok"
 app_title = "Frappe Ngrok"
-app_publisher = "SBMPL"
+app_publisher = "Eternal Enterprise Technologies"
 app_description = "Ngrok and Local Network tunnel manager for Frappe"
 app_email = "bajrang@example.com"
 app_license = "mit"

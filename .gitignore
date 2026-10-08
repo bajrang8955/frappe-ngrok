@@ -53,3 +53,7 @@ jspm_packages/
 
 # Aider AI Chat
 .aider*
+
+# Local ngrok binaries
+frappe_ngrok/bin/
+*.log

@@ -1,15 +1,16 @@
-# Copyright (c) 2026, SBMPL and contributors
-# For license information, please see license.txt
-
+import io
 import json
 import os
+import platform
 import shutil
 import signal
 import socket
 import subprocess
+import tarfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 
 import frappe
 from frappe import _
@@ -79,6 +80,32 @@ def get_tunnel_log_path() -> str:
 	return os.path.join(log_dir, "ngrok.log")
 
 
+def find_ngrok_binary(configured_path: str | None = None) -> str | None:
+	"""Discover ngrok binary across standard macOS, Linux, and bench paths."""
+	if configured_path and os.path.exists(configured_path) and os.access(configured_path, os.X_OK):
+		return configured_path
+
+	from_path = shutil.which("ngrok")
+	if from_path and os.path.exists(from_path):
+		return from_path
+
+	candidates = [
+		os.path.join(frappe.get_app_path("frappe_ngrok"), "bin", "ngrok"),
+		"/opt/homebrew/bin/ngrok",
+		"/usr/local/bin/ngrok",
+		"/usr/bin/ngrok",
+		"/snap/bin/ngrok",
+		os.path.expanduser("~/.local/bin/ngrok"),
+		os.path.expanduser("~/bin/ngrok"),
+	]
+
+	for path in candidates:
+		if os.path.exists(path) and os.access(path, os.X_OK):
+			return path
+
+	return None
+
+
 class NgrokSettings(Document):
 	def onload(self):
 		self.refresh_runtime_values()
@@ -96,7 +123,10 @@ class NgrokSettings(Document):
 		if not self.site_port:
 			self.site_port = port
 
-		if not self.ngrok_path:
+		discovered = find_ngrok_binary(self.ngrok_path)
+		if discovered:
+			self.ngrok_path = discovered
+		elif not self.ngrok_path:
 			self.ngrok_path = shutil.which("ngrok") or "/usr/local/bin/ngrok"
 
 		# Check live ngrok daemon status
@@ -154,6 +184,8 @@ def get_tunnel_status() -> dict:
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 
+	ngrok_bin = find_ngrok_binary(doc.ngrok_path)
+
 	return {
 		"status": doc.status,
 		"ngrok_url": doc.ngrok_url or "",
@@ -163,6 +195,9 @@ def get_tunnel_status() -> dict:
 		"tunnel_pid": doc.tunnel_pid,
 		"started_at": str(doc.started_at or ""),
 		"last_error": doc.last_error or "",
+		"ngrok_installed": bool(ngrok_bin),
+		"ngrok_path": ngrok_bin or doc.ngrok_path or "",
+		"os_name": platform.system(),
 	}
 
 
@@ -190,9 +225,13 @@ def start_tunnel() -> dict:
 		}
 
 	# 2. Check binary
-	ngrok_bin = doc.ngrok_path or shutil.which("ngrok") or "/usr/local/bin/ngrok"
-	if not os.path.exists(ngrok_bin):
-		frappe.throw(_("Ngrok executable not found at '{0}'. Please install ngrok or check path.").format(ngrok_bin))
+	ngrok_bin = find_ngrok_binary(doc.ngrok_path)
+	if not ngrok_bin:
+		frappe.throw(
+			_(
+				"Ngrok executable not found. Please click 'Install Ngrok' to install automatically or install via terminal."
+			)
+		)
 
 	# 3. Ensure authtoken configured if provided
 	token = doc.get_password("auth_token", raise_exception=False)
@@ -342,6 +381,56 @@ def update_ngrok_token(token: str) -> dict:
 
 	return {
 		"message": _("Ngrok authtoken updated successfully!"),
+	}
+
+
+@frappe.whitelist()
+def auto_install_ngrok() -> dict:
+	"""Automatically download and install ngrok binary for the current OS/architecture."""
+	system = platform.system().lower()  # 'linux' or 'darwin'
+	machine = platform.machine().lower()  # 'x86_64', 'arm64', 'aarch64'
+
+	arch = "amd64" if machine in ("x86_64", "amd64") else "arm64"
+
+	if system == "linux":
+		url = f"https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-{arch}.tgz"
+		is_zip = False
+	elif system == "darwin":
+		url = f"https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-{arch}.zip"
+		is_zip = True
+	else:
+		frappe.throw(_("Automated installation only supports Linux and macOS. Please install ngrok manually."))
+
+	target_dir = os.path.join(frappe.get_app_path("frappe_ngrok"), "bin")
+	os.makedirs(target_dir, exist_ok=True)
+	target_bin = os.path.join(target_dir, "ngrok")
+
+	try:
+		req = urllib.request.Request(url, headers={"User-Agent": "FrappeNgrokInstaller"})
+		with urllib.request.urlopen(req, timeout=60) as resp:
+			content = resp.read()
+
+		if is_zip:
+			with zipfile.ZipFile(io.BytesIO(content)) as z:
+				z.extract("ngrok", target_dir)
+		else:
+			with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as t:
+				t.extract("ngrok", target_dir)
+
+		os.chmod(target_bin, 0o755)
+	except Exception as e:
+		frappe.throw(_("Failed to download or extract ngrok: {0}").format(str(e)))
+
+	doc = frappe.get_single("Ngrok Settings")
+	doc.ngrok_path = target_bin
+	doc.refresh_runtime_values()
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+
+	return {
+		"success": True,
+		"path": target_bin,
+		"message": _("Ngrok successfully installed and configured at {0}!").format(target_bin),
 	}
 
 
