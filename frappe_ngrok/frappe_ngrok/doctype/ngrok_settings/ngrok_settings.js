@@ -23,6 +23,14 @@ frappe.ui.form.on("Ngrok Settings", {
 		setup_custom_buttons(frm);
 	},
 
+	expires_at(frm) {
+		render_status_card(frm);
+	},
+
+	expiry_type(frm) {
+		render_status_card(frm);
+	},
+
 	ngrok_url(frm) {
 		render_status_card(frm);
 	},
@@ -95,17 +103,22 @@ function setup_custom_buttons(frm) {
 		}).addClass("btn-primary");
 	}
 
-	// 2. Set Local Domain Name Button
+	// 2. Set Expiry Timer Button
+	frm.add_custom_button(__("Set Expiry Timer"), () => {
+		show_set_expiry_dialog(frm);
+	});
+
+	// 3. Set Local Domain Name Button
 	frm.add_custom_button(__("Change Local Domain Name"), () => {
 		show_change_domain_dialog(frm);
 	});
 
-	// 3. Update Ngrok Authtoken Button
+	// 4. Update Ngrok Authtoken Button
 	frm.add_custom_button(__("Update Ngrok Token"), () => {
 		show_update_token_dialog(frm);
 	});
 
-	// 4. Refresh Status Button
+	// 5. Refresh Status Button
 	frm.add_custom_button(__("Refresh Status"), () => {
 		frappe.call({
 			method: "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.get_tunnel_status",
@@ -126,6 +139,72 @@ function setup_custom_buttons(frm) {
 			}
 		});
 	});
+}
+
+function show_set_expiry_dialog(frm) {
+	frm = frm || cur_frm;
+	let currentType = (frm && frm.doc && frm.doc.expiry_type) || "No Expiry";
+	let currentCustom = (frm && frm.doc && frm.doc.custom_expiry_minutes) || 30;
+
+	let d = new frappe.ui.Dialog({
+		title: __("Set Ngrok Tunnel Expiry Timer"),
+		fields: [
+			{
+				label: __("Expiry Duration"),
+				fieldname: "expiry_type",
+				fieldtype: "Select",
+				options: [
+					"No Expiry",
+					"15 Minutes",
+					"30 Minutes",
+					"1 Hour",
+					"2 Hours",
+					"4 Hours",
+					"8 Hours",
+					"Custom Minutes"
+				],
+				default: currentType,
+				description: __(
+					"Select 'No Expiry' to keep tunnel alive continuously, or choose a timer to auto-stop it."
+				),
+				change() {
+					let val = d.get_value("expiry_type");
+					d.set_df_property("custom_expiry_minutes", "hidden", val !== "Custom Minutes");
+				}
+			},
+			{
+				label: __("Custom Minutes"),
+				fieldname: "custom_expiry_minutes",
+				fieldtype: "Int",
+				default: currentCustom,
+				hidden: currentType !== "Custom Minutes",
+				description: __("Duration in minutes (e.g. 45)")
+			}
+		],
+		primary_action_label: __("Save Timer"),
+		primary_action(values) {
+			d.hide();
+			frappe.call({
+				method: "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.set_tunnel_expiry",
+				args: {
+					expiry_type: values.expiry_type,
+					custom_minutes: values.custom_expiry_minutes
+				},
+				freeze: true,
+				freeze_message: __("Updating Tunnel Timer..."),
+				callback: function (r) {
+					if (!r.exc) {
+						frappe.show_alert({
+							message: r.message.message || __("Timer updated!"),
+							indicator: "green"
+						});
+						if (frm) frm.reload_doc();
+					}
+				}
+			});
+		}
+	});
+	d.show();
 }
 
 function show_change_domain_dialog(frm) {
@@ -231,10 +310,12 @@ function trigger_auto_install(frm) {
 window.frappe_ngrok = {
 	show_change_domain_dialog: show_change_domain_dialog,
 	show_update_token_dialog: show_update_token_dialog,
+	show_set_expiry_dialog: show_set_expiry_dialog,
 	trigger_auto_install: trigger_auto_install
 };
 window.show_change_domain_dialog = show_change_domain_dialog;
 window.show_update_token_dialog = show_update_token_dialog;
+window.show_set_expiry_dialog = show_set_expiry_dialog;
 
 function render_status_card(frm) {
 	if (!frm || !frm.doc) return;
@@ -248,6 +329,8 @@ function render_status_card(frm) {
 	const systemMdnsUrl = doc.system_mdns_url || "";
 	const localIp = doc.local_ip || "127.0.0.1";
 	const localIpUrl = doc.local_network_url || `http://${localIp}:${doc.site_port || 8002}`;
+	const expiresAt = doc.expires_at || "";
+	const expiryType = doc.expiry_type || "No Expiry";
 
 	const badgeHtml = isRunning
 		? `<span class="indicator-pill green" style="font-size: 13px; font-weight: 600; padding: 4px 10px;">🟢 Ngrok Active</span>`
@@ -280,6 +363,45 @@ function render_status_card(frm) {
 	const qrNgrok = isRunning && ngrokUrl
 		? `https://api.qrserver.com/v1/create-qr-code/?size=125x125&data=${encodeURIComponent(ngrokUrl)}`
 		: "";
+
+	// Static Expiry Banner (NO live ticking countdown)
+	let timerHtml = "";
+	if (isRunning) {
+		if (expiresAt) {
+			timerHtml = `
+				<div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 7px 10px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+					<span style="font-size: 11.5px; color: #92400e; font-weight: 600;">
+						⏱️ Auto-Expires: <strong>${expiryType}</strong> (at ${expiresAt})
+					</span>
+					<button class="btn btn-xs btn-default btn-set-timer" style="padding: 1px 7px; font-size: 10.5px;">
+						⚙️ Change
+					</button>
+				</div>
+			`;
+		} else {
+			timerHtml = `
+				<div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 7px 10px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+					<span style="font-size: 11.5px; color: #166534; font-weight: 600;">
+						♾️ Expiry: <strong>No Expiry</strong> (Runs continuously)
+					</span>
+					<button class="btn btn-xs btn-default btn-set-timer" style="padding: 1px 7px; font-size: 10.5px;">
+						⏱️ Set Timer
+					</button>
+				</div>
+			`;
+		}
+	} else {
+		timerHtml = `
+			<div style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 7px 10px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+				<span style="font-size: 11.5px; color: #64748b; font-weight: 500;">
+					⏱️ Timer Config: <strong>${expiryType === "No Expiry" ? "No Expiry" : expiryType}</strong>
+				</span>
+				<button class="btn btn-xs btn-default btn-set-timer" style="padding: 1px 7px; font-size: 10.5px;">
+					⚙️ Config
+				</button>
+			</div>
+		`;
+	}
 
 	const html = `
 		<div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 20px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
@@ -386,6 +508,8 @@ function render_status_card(frm) {
 							${isRunning && ngrokUrl ? ngrokUrl : "Tunnel is currently stopped"}
 						</div>
 
+						${timerHtml}
+
 						<div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
 							${
 								isRunning && ngrokUrl
@@ -473,6 +597,10 @@ function render_status_card(frm) {
 		window.open(ngrokUrl, "_blank");
 	});
 
+	$wrap.find(".btn-set-timer").off("click").on("click", function () {
+		show_set_expiry_dialog(frm);
+	});
+
 	$wrap.find(".btn-start-tunnel").off("click").on("click", function () {
 		frappe.call({
 			method: "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.start_tunnel",
@@ -509,4 +637,3 @@ function render_status_card(frm) {
 		trigger_auto_install(frm);
 	});
 }
-

@@ -389,6 +389,18 @@ def set_local_domain(domain_name: str) -> dict:
 	formatted_domain = sanitize_local_domain(domain_name, current_site)
 
 	doc = frappe.get_single("Ngrok Settings")
+	old_domain = doc.local_domain
+
+	# Clean up previous symlink if changing domain
+	if old_domain and old_domain != formatted_domain:
+		sites_dir = os.path.abspath(os.path.join(frappe.get_site_path(), ".."))
+		old_path = os.path.join(sites_dir, old_domain)
+		if os.path.islink(old_path):
+			try:
+				os.unlink(old_path)
+			except Exception:
+				pass
+
 	doc.local_domain = formatted_domain
 	doc.refresh_runtime_values()
 	doc.broadcast_mdns()
