@@ -244,3 +244,4 @@ function render_status_card(frm) {
 	frm.set_df_property("status_card", "options", html);
 	frm.refresh_field("status_card");
 }
+
