@@ -10,16 +10,17 @@ app_license = "mit"
 
 # required_apps = []
 
+app_home = "/app/ngrok-settings"
+
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "frappe_ngrok",
-# 		"logo": "/assets/frappe_ngrok/logo.png",
-# 		"title": "Frappe Ngrok",
-# 		"route": "/frappe_ngrok",
-# 		"has_permission": "frappe_ngrok.api.permission.has_app_permission",
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "frappe_ngrok",
+		"logo": "/assets/frappe_ngrok/logo.svg",
+		"title": "Frappe Ngrok",
+		"route": "/app/ngrok-settings",
+	}
+]
 
 # The dock, the rail down the left of the desk, is a document rather than a hook. Author it in
 # Manage Dock on a developer-mode site and press Export to App, and it is written to

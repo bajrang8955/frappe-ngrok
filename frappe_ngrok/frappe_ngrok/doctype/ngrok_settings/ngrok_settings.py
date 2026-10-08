@@ -360,6 +360,23 @@ def setup_default_settings():
 			doc.ngrok_path = shutil.which("ngrok") or "/usr/local/bin/ngrok"
 		doc.refresh_runtime_values()
 		doc.save(ignore_permissions=True)
+
+		if frappe.db.exists("DocType", "Desktop Icon") and not frappe.db.exists("Desktop Icon", "Frappe Ngrok"):
+			try:
+				icon_doc = frappe.new_doc("Desktop Icon")
+				icon_doc.label = "Frappe Ngrok"
+				icon_doc.app = "frappe_ngrok"
+				icon_doc.icon_type = "Link"
+				icon_doc.link_type = "External"
+				icon_doc.link = "/app/ngrok-settings"
+				icon_doc.logo_url = "/assets/frappe_ngrok/logo.svg"
+				icon_doc.hidden = 0
+				icon_doc.standard = 1
+				icon_doc.bg_color = "gray"
+				icon_doc.insert(ignore_permissions=True)
+			except Exception:
+				pass
+
 		frappe.db.commit()
 	except Exception:
 		frappe.log_error("Failed to setup default Ngrok Settings")

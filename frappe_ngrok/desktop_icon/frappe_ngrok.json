@@ -1,0 +1,21 @@
+{
+ "app": "frappe_ngrok",
+ "bg_color": "gray",
+ "creation": "2026-10-08 15:25:00.000000",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon_type": "Link",
+ "idx": 0,
+ "label": "Frappe Ngrok",
+ "link": "/app/ngrok-settings",
+ "link_type": "External",
+ "logo_url": "/assets/frappe_ngrok/logo.svg",
+ "modified": "2026-10-08 15:25:00.000000",
+ "modified_by": "Administrator",
+ "name": "Frappe Ngrok",
+ "owner": "Administrator",
+ "restrict_removal": 0,
+ "roles": [],
+ "standard": 1
+}
