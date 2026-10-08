@@ -349,11 +349,9 @@ class NgrokSettings(Document):
 
 @frappe.whitelist()
 def get_tunnel_status() -> dict:
-	"""Fetch live status of local IP, .local domain, ngrok tunnel, and expiry timer."""
+	"""Fetch live status of local IP, .local domain, ngrok tunnel, and expiry timer without modifying document timestamp."""
 	doc = frappe.get_single("Ngrok Settings")
 	doc.refresh_runtime_values()
-	doc.save(ignore_permissions=True)
-	frappe.db.commit()
 
 	ngrok_bin = find_ngrok_binary(doc.ngrok_path)
 
