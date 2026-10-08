@@ -272,3 +272,6 @@ app_license = "mit"
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+after_install = "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.setup_default_settings"
+after_migrate = "frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.setup_default_settings"
+

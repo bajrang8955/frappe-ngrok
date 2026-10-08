@@ -1,0 +1,55 @@
+{
+ "app": "frappe_ngrok",
+ "charts": [],
+ "content": "[{\"id\": \"title\", \"type\": \"header\", \"data\": {\"text\": \"<b>Frappe Ngrok Remote Access</b>\", \"col\": 12}}, {\"id\": \"intro\", \"type\": \"paragraph\", \"data\": {\"text\": \"Manage public Ngrok tunnels and local network IP access for testing mobile apps.\", \"col\": 12}}, {\"id\": \"quick-title\", \"type\": \"header\", \"data\": {\"text\": \"<b>Quick Access</b>\", \"col\": 12}}, {\"id\": \"quick-0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Ngrok Settings\", \"col\": 4}}, {\"id\": \"cards-title\", \"type\": \"header\", \"data\": {\"text\": \"<b>Settings &amp; Tunnels</b>\", \"col\": 12}}, {\"id\": \"card-0\", \"type\": \"card\", \"data\": {\"card_name\": \"Tunnel Control\", \"col\": 4}}]",
+ "creation": "2026-10-08 15:17:00.000000",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "globe",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Frappe Ngrok",
+ "link_type": "DocType",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Tunnel Control",
+   "link_count": 0,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Ngrok Settings",
+   "link_count": 0,
+   "link_to": "Ngrok Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-10-08 15:17:00.000000",
+ "modified_by": "Administrator",
+ "module": "Frappe Ngrok",
+ "name": "Frappe Ngrok",
+ "owner": "Administrator",
+ "public": 1,
+ "roles": [],
+ "sequence_id": 0.0,
+ "shortcuts": [
+  {
+   "doc_view": "",
+   "label": "Ngrok Settings",
+   "link_to": "Ngrok Settings",
+   "type": "DocType"
+  }
+ ],
+ "title": "Frappe Ngrok",
+ "type": "Workspace"
+}

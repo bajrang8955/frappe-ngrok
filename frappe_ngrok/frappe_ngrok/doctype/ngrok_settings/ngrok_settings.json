@@ -1,0 +1,164 @@
+{
+ "actions": [],
+ "creation": "2026-10-08 15:15:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "status_card",
+  "control_section",
+  "status",
+  "ngrok_url",
+  "col_break_1",
+  "local_network_url",
+  "local_ip",
+  "config_section",
+  "site_port",
+  "host_header",
+  "col_break_2",
+  "custom_domain",
+  "ngrok_path",
+  "auth_section",
+  "auth_token",
+  "proc_section",
+  "tunnel_pid",
+  "started_at",
+  "col_break_3",
+  "last_error"
+ ],
+ "fields": [
+  {
+   "fieldname": "status_card",
+   "fieldtype": "HTML",
+   "label": "Tunnel Dashboard"
+  },
+  {
+   "fieldname": "control_section",
+   "fieldtype": "Section Break",
+   "label": "Access Links & Status"
+  },
+  {
+   "default": "Stopped",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Stopped\nRunning\nError",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ngrok_url",
+   "fieldtype": "Data",
+   "label": "Public Ngrok URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "local_network_url",
+   "fieldtype": "Data",
+   "label": "Local Network URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "local_ip",
+   "fieldtype": "Data",
+   "label": "Local IP Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "config_section",
+   "fieldtype": "Section Break",
+   "label": "Tunnel Configuration"
+  },
+  {
+   "default": "8002",
+   "fieldname": "site_port",
+   "fieldtype": "Int",
+   "label": "Webserver Port",
+   "reqd": 1
+  },
+  {
+   "description": "Host header passed to Frappe (default: current site domain e.g. sbmpl.localhost)",
+   "fieldname": "host_header",
+   "fieldtype": "Data",
+   "label": "Host Header"
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Optional: Reserved ngrok domain (e.g. mydomain.ngrok-free.app)",
+   "fieldname": "custom_domain",
+   "fieldtype": "Data",
+   "label": "Custom Domain (Optional)"
+  },
+  {
+   "default": "/usr/local/bin/ngrok",
+   "description": "Path to ngrok executable",
+   "fieldname": "ngrok_path",
+   "fieldtype": "Data",
+   "label": "Ngrok Binary Path",
+   "reqd": 1
+  },
+  {
+   "fieldname": "auth_section",
+   "fieldtype": "Section Break",
+   "label": "Ngrok Authentication"
+  },
+  {
+   "description": "Your ngrok authtoken. Updating this field and saving or clicking 'Update Auth Token' configures ngrok CLI.",
+   "fieldname": "auth_token",
+   "fieldtype": "Password",
+   "label": "Ngrok Authtoken"
+  },
+  {
+   "collapsed": 1,
+   "fieldname": "proc_section",
+   "fieldtype": "Section Break",
+   "label": "Process & Diagnostics"
+  },
+  {
+   "fieldname": "tunnel_pid",
+   "fieldtype": "Int",
+   "label": "Tunnel Process PID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Tunnel Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Output / Error Log",
+   "read_only": 1
+  }
+ ],
+ "issingle": 1,
+ "modified": "2026-10-08 15:15:00.000000",
+ "modified_by": "Administrator",
+ "module": "Frappe Ngrok",
+ "name": "Ngrok Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}
