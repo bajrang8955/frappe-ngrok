@@ -810,7 +810,8 @@ def update_ngrok_token(token: str) -> dict:
 
 	doc = frappe.get_single("Ngrok Settings")
 	doc.apply_auth_token(token.strip())
-	doc.set_password("auth_token", token.strip())
+	# Store the token in the Password field; save() encrypts it automatically.
+	doc.auth_token = token.strip()
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 
