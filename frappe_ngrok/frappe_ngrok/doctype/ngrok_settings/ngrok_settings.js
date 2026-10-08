@@ -509,3 +509,4 @@ function render_status_card(frm) {
 		trigger_auto_install(frm);
 	});
 }
+

@@ -15,7 +15,7 @@ import zipfile
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_site_path, now
+from frappe.utils import add_to_date, get_datetime, get_site_path, now, now_datetime
 
 
 def get_local_ip() -> str:
@@ -146,12 +146,35 @@ def sanitize_local_domain(name: str | None, current_site: str) -> str:
 	return name
 
 
+def calculate_expiry_datetime(expiry_type: str | None, custom_minutes: int | None = None):
+	"""Calculate future datetime when the tunnel should auto-expire."""
+	if not expiry_type or expiry_type == "No Expiry":
+		return None
+
+	minutes_map = {
+		"15 Minutes": 15,
+		"30 Minutes": 30,
+		"1 Hour": 60,
+		"2 Hours": 120,
+		"4 Hours": 240,
+		"8 Hours": 480,
+	}
+	minutes = minutes_map.get(expiry_type)
+	if not minutes and expiry_type == "Custom Minutes":
+		minutes = int(custom_minutes or 0)
+
+	if not minutes or minutes <= 0:
+		return None
+
+	return add_to_date(now_datetime(), minutes=minutes)
+
+
 class NgrokSettings(Document):
 	def onload(self):
 		self.refresh_runtime_values()
 
 	def refresh_runtime_values(self):
-		"""Detect and update live URLs, local IP, .local domain, and tunnel state."""
+		"""Detect and update live URLs, local IP, .local domain, expiry state, and tunnel state."""
 		current_site = frappe.local.site or "localhost"
 		port = self.site_port or get_current_site_port()
 		local_ip = get_local_ip()
@@ -204,16 +227,24 @@ class NgrokSettings(Document):
 		api_data = query_ngrok_api()
 		if api_data and api_data.get("tunnels"):
 			tunnels = api_data.get("tunnels", [])
-			# Prefer HTTPS tunnel
 			https_tunnel = next((t for t in tunnels if t.get("proto") == "https"), tunnels[0])
 			self.ngrok_url = https_tunnel.get("public_url")
 			self.status = "Running"
+
+			# Check if tunnel has expired
+			if self.expires_at and now_datetime() >= get_datetime(self.expires_at):
+				stop_tunnel()
+				self.status = "Stopped"
+				self.ngrok_url = ""
+				self.expires_at = None
+				self.last_error = _("Tunnel automatically closed on expiry.")
 		else:
 			if self.tunnel_pid and not is_pid_alive(self.tunnel_pid):
 				self.tunnel_pid = 0
 			if self.status == "Running" and not api_data:
 				self.status = "Stopped"
 				self.ngrok_url = ""
+				self.expires_at = None
 
 	def validate(self):
 		current_site = frappe.local.site or "localhost"
@@ -318,7 +349,7 @@ class NgrokSettings(Document):
 
 @frappe.whitelist()
 def get_tunnel_status() -> dict:
-	"""Fetch live status of local IP, .local domain, and ngrok tunnel."""
+	"""Fetch live status of local IP, .local domain, ngrok tunnel, and expiry timer."""
 	doc = frappe.get_single("Ngrok Settings")
 	doc.refresh_runtime_values()
 	doc.save(ignore_permissions=True)
@@ -339,6 +370,9 @@ def get_tunnel_status() -> dict:
 		"tunnel_pid": doc.tunnel_pid,
 		"mdns_pid": doc.mdns_pid,
 		"started_at": str(doc.started_at or ""),
+		"expiry_type": doc.expiry_type or "No Expiry",
+		"custom_expiry_minutes": doc.custom_expiry_minutes or 0,
+		"expires_at": str(doc.expires_at or ""),
 		"last_error": doc.last_error or "",
 		"ngrok_installed": bool(ngrok_bin),
 		"ngrok_path": ngrok_bin or doc.ngrok_path or "",
@@ -371,10 +405,67 @@ def set_local_domain(domain_name: str) -> dict:
 
 
 @frappe.whitelist()
-def start_tunnel() -> dict:
-	"""Start ngrok tunnel for this Frappe site."""
+def set_tunnel_expiry(expiry_type: str, custom_minutes: int | None = None) -> dict:
+	"""Set or update auto-expiry duration for the ngrok tunnel."""
+	doc = frappe.get_single("Ngrok Settings")
+	doc.expiry_type = expiry_type or "No Expiry"
+	if custom_minutes is not None:
+		try:
+			doc.custom_expiry_minutes = int(custom_minutes)
+		except ValueError:
+			doc.custom_expiry_minutes = 0
+
+	if doc.status == "Running":
+		if doc.expiry_type != "No Expiry":
+			doc.expires_at = calculate_expiry_datetime(doc.expiry_type, doc.custom_expiry_minutes)
+		else:
+			doc.expires_at = None
+	else:
+		doc.expires_at = None
+
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+
+	label = doc.expiry_type if doc.expiry_type != "No Expiry" else _("No Expiry (Runs continuously)")
+	return {
+		"expiry_type": doc.expiry_type,
+		"custom_expiry_minutes": doc.custom_expiry_minutes,
+		"expires_at": str(doc.expires_at or ""),
+		"message": _("Tunnel timer set to {0}").format(label),
+	}
+
+
+@frappe.whitelist()
+def check_and_expire_tunnel():
+	"""Scheduled cron task to automatically stop expired ngrok tunnels."""
+	try:
+		doc = frappe.get_single("Ngrok Settings")
+		if doc.status == "Running" and doc.expires_at:
+			if now_datetime() >= get_datetime(doc.expires_at):
+				stop_tunnel()
+				doc = frappe.get_single("Ngrok Settings")
+				doc.last_error = _("Tunnel automatically closed on expiry.")
+				doc.expires_at = None
+				doc.save(ignore_permissions=True)
+				frappe.db.commit()
+	except Exception as e:
+		frappe.log_error(f"Error checking ngrok tunnel expiry: {e}")
+
+
+@frappe.whitelist()
+def start_tunnel(expiry_type: str | None = None, custom_minutes: int | None = None) -> dict:
+	"""Start ngrok tunnel for this Frappe site with optional auto-expiry timer."""
 	doc = frappe.get_single("Ngrok Settings")
 	doc.refresh_runtime_values()
+
+	# Apply expiry timer options if passed
+	if expiry_type is not None:
+		doc.expiry_type = expiry_type
+	if custom_minutes is not None:
+		try:
+			doc.custom_expiry_minutes = int(custom_minutes)
+		except ValueError:
+			pass
 
 	# 1. Check if tunnel is already active
 	api_data = query_ngrok_api()
@@ -383,6 +474,10 @@ def start_tunnel() -> dict:
 		https_tunnel = next((t for t in tunnels if t.get("proto") == "https"), tunnels[0])
 		doc.status = "Running"
 		doc.ngrok_url = https_tunnel.get("public_url")
+		if doc.expiry_type and doc.expiry_type != "No Expiry":
+			doc.expires_at = calculate_expiry_datetime(doc.expiry_type, doc.custom_expiry_minutes)
+		else:
+			doc.expires_at = None
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
 		return {
@@ -391,6 +486,8 @@ def start_tunnel() -> dict:
 			"local_network_url": doc.local_network_url,
 			"local_domain_url": doc.local_domain_url,
 			"local_ip": doc.local_ip,
+			"expiry_type": doc.expiry_type or "No Expiry",
+			"expires_at": str(doc.expires_at or ""),
 			"message": _("Ngrok tunnel is already running."),
 		}
 
@@ -444,7 +541,6 @@ def start_tunnel() -> dict:
 	for attempt in range(16):
 		time.sleep(0.5)
 
-		# Check if process terminated early
 		if proc.poll() is not None:
 			break
 
@@ -464,6 +560,13 @@ def start_tunnel() -> dict:
 		doc.tunnel_pid = proc.pid
 		doc.started_at = now()
 		doc.last_error = ""
+
+		# Calculate expiry timestamp
+		if doc.expiry_type and doc.expiry_type != "No Expiry":
+			doc.expires_at = calculate_expiry_datetime(doc.expiry_type, doc.custom_expiry_minutes)
+		else:
+			doc.expires_at = None
+
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
 
@@ -473,6 +576,8 @@ def start_tunnel() -> dict:
 			"local_network_url": doc.local_network_url,
 			"local_domain_url": doc.local_domain_url,
 			"local_ip": doc.local_ip,
+			"expiry_type": doc.expiry_type or "No Expiry",
+			"expires_at": str(doc.expires_at or ""),
 			"message": _("Ngrok tunnel started successfully!"),
 		}
 	else:
@@ -484,7 +589,6 @@ def start_tunnel() -> dict:
 		except Exception:
 			pass
 
-		# Clean up dead process if still hanging
 		if proc.poll() is None:
 			try:
 				proc.terminate()
@@ -493,6 +597,7 @@ def start_tunnel() -> dict:
 
 		doc.status = "Error"
 		doc.tunnel_pid = 0
+		doc.expires_at = None
 		doc.last_error = err_text or _("Tunnel failed to open or authenticate.")
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()
@@ -506,7 +611,7 @@ def start_tunnel() -> dict:
 
 @frappe.whitelist()
 def stop_tunnel() -> dict:
-	"""Stop the active ngrok tunnel."""
+	"""Stop the active ngrok tunnel and clear timer."""
 	doc = frappe.get_single("Ngrok Settings")
 
 	# Terminate tracked PID if alive
@@ -519,7 +624,6 @@ def stop_tunnel() -> dict:
 		except Exception:
 			pass
 
-	# Also attempt to gracefully kill any local ngrok process
 	try:
 		subprocess.run(["pkill", "-f", "ngrok http"], capture_output=True)
 	except Exception:
@@ -528,6 +632,7 @@ def stop_tunnel() -> dict:
 	doc.status = "Stopped"
 	doc.ngrok_url = ""
 	doc.tunnel_pid = 0
+	doc.expires_at = None
 	doc.refresh_runtime_values()
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
@@ -618,6 +723,8 @@ def setup_default_settings():
 			doc.host_header = frappe.local.site or "localhost"
 		if not doc.ngrok_path:
 			doc.ngrok_path = shutil.which("ngrok") or "/usr/local/bin/ngrok"
+		if not doc.expiry_type:
+			doc.expiry_type = "No Expiry"
 		doc.refresh_runtime_values()
 		doc.save(ignore_permissions=True)
 

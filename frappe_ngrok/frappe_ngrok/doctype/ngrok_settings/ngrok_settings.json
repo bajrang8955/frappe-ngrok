@@ -21,6 +21,11 @@
   "ngrok_url",
   "col_break_ngrok",
   "custom_domain",
+  "expiry_section",
+  "expiry_type",
+  "custom_expiry_minutes",
+  "col_break_expiry",
+  "expires_at",
   "config_section",
   "site_port",
   "host_header",
@@ -136,6 +141,37 @@
    "label": "Custom Ngrok Domain (Optional)"
   },
   {
+   "fieldname": "expiry_section",
+   "fieldtype": "Section Break",
+   "label": "Tunnel Expiry & Timer"
+  },
+  {
+   "default": "No Expiry",
+   "description": "Auto-shutdown duration for the ngrok tunnel. If 'No Expiry', the tunnel runs continuously until stopped.",
+   "fieldname": "expiry_type",
+   "fieldtype": "Select",
+   "label": "Tunnel Expiry Duration",
+   "options": "No Expiry\n15 Minutes\n30 Minutes\n1 Hour\n2 Hours\n4 Hours\n8 Hours\nCustom Minutes"
+  },
+  {
+   "depends_on": "eval:doc.expiry_type=='Custom Minutes'",
+   "description": "Custom timer in minutes (e.g. 45)",
+   "fieldname": "custom_expiry_minutes",
+   "fieldtype": "Int",
+   "label": "Custom Expiry (Minutes)"
+  },
+  {
+   "fieldname": "col_break_expiry",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Exact time when the tunnel will be automatically terminated. Blank if No Expiry.",
+   "fieldname": "expires_at",
+   "fieldtype": "Datetime",
+   "label": "Tunnel Expires At",
+   "read_only": 1
+  },
+  {
    "fieldname": "config_section",
    "fieldtype": "Section Break",
    "label": "Bench & Server Configuration"
@@ -212,7 +248,7 @@
   }
  ],
  "issingle": 1,
- "modified": "2026-10-08 16:25:00.000000",
+ "modified": "2026-10-08 16:38:00.000000",
  "modified_by": "Administrator",
  "module": "Frappe Ngrok",
  "name": "Ngrok Settings",

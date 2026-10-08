@@ -166,23 +166,13 @@ add_to_apps_screen = [
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"frappe_ngrok.tasks.all"
-# 	],
-# 	"daily": [
-# 		"frappe_ngrok.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"frappe_ngrok.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"frappe_ngrok.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"frappe_ngrok.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"cron": {
+		"* * * * *": [
+			"frappe_ngrok.frappe_ngrok.doctype.ngrok_settings.ngrok_settings.check_and_expire_tunnel"
+		]
+	}
+}
 
 # Testing
 # -------
