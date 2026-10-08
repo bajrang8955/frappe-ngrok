@@ -111,6 +111,14 @@ def get_common_config_path() -> str:
 	return os.path.abspath(os.path.join(frappe.get_site_path(), "..", "common_site_config.json"))
 
 
+def get_mdns_hostname() -> str:
+	"""Return local mDNS hostname e.g. bajrang-Latitude-7480.local."""
+	hostname = socket.gethostname()
+	if not hostname.endswith(".local"):
+		return f"{hostname}.local"
+	return hostname
+
+
 def ensure_site_alias_symlink(alias_domain: str, target_site: str):
 	"""Create a symlink in sites/ so Frappe multi-tenant router recognizes the domain."""
 	if not alias_domain or alias_domain == target_site:
@@ -144,14 +152,16 @@ class NgrokSettings(Document):
 		if not self.site_port:
 			self.site_port = port
 
+		mdns_host = get_mdns_hostname()
 		local_domain = self.get("local_domain")
-		if not local_domain:
-			site_prefix = current_site.replace(".localhost", "").replace(".", "-")
-			local_domain = f"{site_prefix}.{local_ip}.sslip.io"
+		if not local_domain or ".sslip.io" in local_domain:
+			local_domain = mdns_host
 			self.local_domain = local_domain
 
 		self.local_domain_url = f"http://{local_domain}:{port}"
 		ensure_site_alias_symlink(local_domain, current_site)
+		ensure_site_alias_symlink(mdns_host, current_site)
+		ensure_site_alias_symlink(local_ip, current_site)
 
 		# Check if this site is currently the default_site
 		common_path = get_common_config_path()

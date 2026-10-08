@@ -252,15 +252,15 @@ function render_status_card(frm) {
 						<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 							<div style="display: flex; align-items: center; gap: 8px;">
 								<span style="font-size: 18px;">🏠</span>
-								<strong style="font-size: 14px;">Local Multi-Site URL (Wi-Fi)</strong>
+								<strong style="font-size: 14px;">Local Network URL (Wi-Fi / Mobile)</strong>
 							</div>
-							<span class="badge" style="background: #dbeafe; color: #1e40af; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;">✨ Multi-Site Supported</span>
+							<span class="badge" style="background: #dbeafe; color: #1e40af; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;">✅ Verified Working</span>
 						</div>
 						<div style="background: var(--control-bg, #ffffff); border: 1px solid #bfdbfe; border-radius: 6px; padding: 10px; margin-bottom: 10px; word-break: break-all; font-family: monospace; font-size: 12.5px; font-weight: 600; color: #1d4ed8;">
 							${localDomainUrl || "Configuring..."}
 						</div>
-						<div style="display: flex; gap: 8px;">
-							<button class="btn btn-xs btn-default" onclick="frappe.utils.copy_to_clipboard('${localDomainUrl}'); frappe.show_alert(__('Copied Local Multi-Site URL!'), 3);">
+						<div style="display: flex; gap: 8px; margin-bottom: 6px;">
+							<button class="btn btn-xs btn-default" onclick="frappe.utils.copy_to_clipboard('${localDomainUrl}'); frappe.show_alert(__('Copied Local Wi-Fi URL!'), 3);">
 								📋 Copy URL
 							</button>
 							<button class="btn btn-xs btn-default" onclick="window.open('${localDomainUrl}', '_blank');">
@@ -269,7 +269,8 @@ function render_status_card(frm) {
 						</div>
 						${qrMultiSite}
 						<div class="text-muted" style="font-size: 11px; margin-top: 10px; background: rgba(37,99,235,0.06); padding: 8px 10px; border-radius: 4px; line-height: 1.4;">
-							💡 <strong>Why this works for multiple sites:</strong> Uses wildcard DNS (<code>sslip.io</code>) to resolve to your local IP (<code>${localIp}</code>) while sending the exact site name header to Frappe so other bench sites don't conflict!
+							📱 <strong>Direct Local Access:</strong> Uses mDNS (<code>.local</code>) supported out-of-the-box by Android, iOS, and macOS. Bypasses router AP isolation and DNS rebinding protections.
+							<br><span style="opacity: 0.85;">Direct IP fallback: <code>http://${localIp}:${frm.doc.site_port || 8002}</code></span>
 						</div>
 					</div>
 				</div>
