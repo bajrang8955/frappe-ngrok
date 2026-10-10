@@ -298,11 +298,17 @@ class NgrokSettings(Document):
 		local_ip = get_local_ip()
 		system_mdns = get_mdns_hostname()
 
+		old_ip = self.local_ip
 		self.site_port = port
 		self.local_ip = local_ip
 		self.local_network_url = f"http://{local_ip}:{port}"
 		self.system_mdns_hostname = system_mdns.lower()
 		self.system_mdns_url = f"http://{system_mdns}:{port}".lower()
+
+		# If IP changed across Wi-Fi reconnects, clean up old symlink & re-broadcast
+		if old_ip and old_ip != local_ip:
+			remove_site_alias_symlink(old_ip)
+			self.broadcast_mdns()
 
 		if not self.host_header:
 			self.host_header = current_site
@@ -335,9 +341,10 @@ class NgrokSettings(Document):
 		elif not self.ngrok_path:
 			self.ngrok_path = shutil.which("ngrok") or "/usr/local/bin/ngrok"
 
-		# Check mDNS broadcast daemon status
-		if self.mdns_pid and not is_pid_alive(self.mdns_pid):
-			self.mdns_pid = 0
+		# Check mDNS broadcast daemon status: ensure alive and publishing
+		if self.local_domain and self.local_domain != system_mdns:
+			if not self.mdns_pid or not is_pid_alive(self.mdns_pid):
+				self.broadcast_mdns()
 
 		# Check live ngrok daemon status
 		api_data = query_ngrok_api()
@@ -469,6 +476,11 @@ class NgrokSettings(Document):
 				os.kill(self.mdns_pid, signal.SIGTERM)
 			except Exception:
 				pass
+
+		try:
+			subprocess.run(["pkill", "-f", f"avahi-publish.*{domain}"], capture_output=True)
+		except Exception:
+			pass
 
 		local_ip = get_local_ip()
 		try:
